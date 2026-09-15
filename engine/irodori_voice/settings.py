@@ -166,6 +166,16 @@ def resolve_placement(settings: EngineSettings) -> DevicePlacement:
     if settings.model_device != "auto":
         model_device = settings.model_device
         reasons.append(f"モデルのデバイスは設定値 {model_device} を使用します。")
+        # VRAM が足りないまま GPU を指定すると、CUDA は確保に失敗せずシステムメモリへ
+        # 退避して動き続ける。PCIe 越しに重みを往復させるため、落ちる代わりに極端に
+        # 遅くなる。GTX 1050 Ti（空き 2.5GB）へ 2.9GB のモデルを載せた実測では、
+        # CPU の 6.0 秒に対して 36.2 秒（約 6 倍）かかった。
+        if model_device == "cuda" and has_cuda and vram < MIN_GPU_MEMORY_BYTES_FOR_MODEL:
+            reasons.append(
+                f"ただし VRAM は {vram / 1024**3:.1f}GB しかなく、モデル本体（fp32 で約 2.9GB）"
+                "には足りません。不足分をシステムメモリへ退避しながら動くため、CPU よりも"
+                "大幅に遅くなります。設定を auto へ戻すことをおすすめします。"
+            )
     elif has_cuda and vram >= MIN_GPU_MEMORY_BYTES_FOR_MODEL:
         model_device = "cuda"
         reasons.append(f"VRAM {vram / 1024**3:.1f}GB を検出したため、モデルを GPU で実行します。")
@@ -199,10 +209,13 @@ def resolve_placement(settings: EngineSettings) -> DevicePlacement:
         if device not in ("cuda", "xpu"):
             return "fp32"
         if device == "cuda" and capability < MIN_BF16_COMPUTE_CAPABILITY:
-            reasons.append(
+            # model と codec の両方から呼ばれるため、同じ理由を二度並べない。
+            note = (
                 f"compute capability {capability[0]}.{capability[1]} は bf16 の"
                 "ネイティブ演算に対応しないため fp32 を使用します。"
             )
+            if note not in reasons:
+                reasons.append(note)
             return "fp32"
         return "bf16"
 

@@ -20,11 +20,18 @@ from .state import EngineState
 
 # エディタは同一マシンの別プロセスから叩く。開発サーバー、Electron、Tauri の
 # それぞれが名乗るオリジンだけを許可する。
+#
+# "app://." を落とすと配布版だけが動かない。Electron の本番ビルドは
+# app://./index.html を読み込むため、ブラウザが名乗る Origin は app://localhost
+# ではなく app://. になる。開発サーバー（:5173）では素通りするので、
+# ここが欠けていても手元では最後まで気づけない。エンジンは正常に起動するのに
+# エディタの /version だけが弾かれ、「エンジン起動中」から進まなくなる。
 ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:4173",
     "http://127.0.0.1:4173",
+    "app://.",
     "app://localhost",
     "tauri://localhost",
     "http://tauri.localhost",

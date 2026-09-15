@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import multiprocessing
 import sys
 from pathlib import Path
 
@@ -104,4 +105,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # 実行ファイルへ固めた場合、multiprocessing の子プロセスは Python ではなく
+    # この exe 自身を再実行して起動する。freeze_support() を最初に呼ばないと、
+    # その子プロセスが引数を解釈できずに初期化へ失敗し、
+    # 「ModuleNotFoundError: No module named '_socket'」で異常終了する。
+    # torch が内部で使うため推論だけでも通る道で、しかも起動のたびに起きるとは
+    # 限らないため、「たまに起動しない」という形で現れる。
+    multiprocessing.freeze_support()
     raise SystemExit(main())

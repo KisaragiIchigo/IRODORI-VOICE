@@ -35,6 +35,10 @@ SILENT_SECONDS = 0.2
 # 全話者・全スタイルで 3 本ずつ作ると 50 本近くになり、初回の生成が長すぎる。
 SAMPLE_TEXT = "こんにちは。いろどりボイスです。"
 
+# 読み取るサンプルの上限。いまは 1 話者につき 1 本しか作らないが、後から
+# 増やしたときに samples_for が拾えるよう、連番を追える形にしておく。
+_MAX_SAMPLES = 3
+
 
 def _sample_dir() -> Path:
     path = cache_root() / "voice-samples"
@@ -74,19 +78,28 @@ class SampleVoiceStore:
 
         self._generate = generate
 
-    def samples_for(self, voice_id: str, style_id: str | None, *, count: int = 3) -> list[str]:
-        """base64 のサンプルを返す。無ければ無音を返し、生成を予約する。"""
+    def samples_for(self, voice_id: str, style_id: str | None) -> list[str]:
+        """base64 のサンプルを返す。無ければ無音を返し、生成を予約する。
 
-        path = _sample_path(voice_id, style_id, 0)
-        if path.is_file():
-            encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-        else:
-            encoded = silent_sample_base64()
-            self._enqueue(voice_id, style_id)
+        エディタは要素数だけ試聴ボタンを出すため、持っている本数をそのまま返す。
+        本家は 1 話者につき 3 本のサンプルを用意しているが、こちらは 1 本しか作らない。
+        3 枠へ同じ音声を並べると、押しても同じ音が鳴るボタンが 3 つ並ぶことになる。
+        """
 
-        # エディタは voiceSamplePaths の要素数だけ試聴ボタンを出し、添字で引く。
-        # 本家が 3 本持つ形に合わせ、同じ音声を 3 枠に並べる。
-        return [encoded] * count
+        encoded: list[str] = []
+        for index in range(_MAX_SAMPLES):
+            path = _sample_path(voice_id, style_id, index)
+            if not path.is_file():
+                break
+            encoded.append(base64.b64encode(path.read_bytes()).decode("ascii"))
+
+        if encoded:
+            return encoded
+
+        # まだ作られていない。空配列を返すとエディタが undefined を audio.src へ
+        # 代入して落ちるため、無音を 1 本返しておく。生成は裏で走らせる。
+        self._enqueue(voice_id, style_id)
+        return [silent_sample_base64()]
 
     def _enqueue(self, voice_id: str, style_id: str | None) -> None:
         if self._generate is None:

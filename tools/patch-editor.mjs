@@ -305,6 +305,22 @@ const logger = createLogger("useFetchNewUpdateInfos");
 `,
   },
   {
+    name: "話者追加時の並び替え画面",
+    file: join(editorSrc, "store", "engine.ts"),
+    original: `      if (mergedResult.anyNewCharacters) {
+        void actions.SET_DIALOG_OPEN({
+          isOldCharacterOrderDialogOpen: true,
+        });
+      }
+`,
+    patched: `      // 本家は未登録の話者を見つけると並び替え画面を全画面で開く。キャラクターが
+      // 増えるのが年に数回という前提の作りだが、IRODORI-VOICE では管理画面から
+      // 話者をいくつでも作れるため、作るたびに開いて邪魔になる。
+      // 並び替えは「設定」→「キャラクター並び替え・試聴」からいつでも開けるので、
+      // 自動で開くのをやめる。
+`,
+  },
+  {
     name: "ビルド出力先の差し替え口",
     file: join(editorRoot, "build", "electronBuilderConfig.ts"),
     original: `  directories: {
@@ -329,20 +345,15 @@ const logger = createLogger("useFetchNewUpdateInfos");
         arch: ["x64"],
       },
     ],`,
-    patched: `    target: [
-      {
-        target: "nsis",
-        arch: ["x64"],
-      },
-      {
-        target: "portable",
-        arch: ["x64"],
-      },
-      {
-        target: "dir",
-        arch: ["x64"],
-      },
-    ],`,
+    patched: `    // 既定はインストーラ・単一実行ファイル・フォルダの 3 形式。
+    // IRODORI_BUILD_TARGETS で絞れるようにしているのは、GPU 版のためです。
+    // NSIS は 32bit 実装で、埋め込むアプリが 2GB 前後を超えると
+    // extractEmbeddedAppPackage で失敗します。CUDA ランタイムを含む GPU 版は
+    // 5GB あるため nsis と portable を作れません（実測で確認済み）。
+    // その構成では dir だけを指定します。
+    target: (process.env.IRODORI_BUILD_TARGETS ?? "nsis,portable,dir")
+      .split(",")
+      .map((name) => ({ target: name.trim(), arch: ["x64"] })),`,
   },
   {
     name: "インストーラと単一実行ファイルの設定",
