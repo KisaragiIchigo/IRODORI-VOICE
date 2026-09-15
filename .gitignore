@@ -1,0 +1,29 @@
+# 作業記録（内部向けのため配布物に含めない）
+changelogs.json
+
+# VOICEVOX エディタ（公式リポジトリを取得したもの。改変物は同梱しない）
+editor-voicevox/
+
+# 動作確認用に生成した音声
+samples/
+
+# 取り込み確認に使った音声モデル（配布物ではなく、容量も大きい）
+サンプルモデル/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+runtime/
+
+# Node
+node_modules/
+
+# 配布物
+release/
+dist/
+build/
+
+# OS
+Thumbs.db
+.DS_Store

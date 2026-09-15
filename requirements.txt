@@ -1,0 +1,57 @@
+# IRODORI-VOICE エンジンの依存。
+#
+# torch は環境によって入れ方が変わります。CPU で動かす場合はこのファイルをそのまま
+# 使えますが、GPU を使う場合は先に CUDA 版の torch を入れてから、このファイルを
+# --no-deps 無しで適用してください。
+#
+#   CPU:  pip install -r requirements.txt
+#   CUDA: pip install torch==2.10.0 torchaudio==2.10.0 --index-url https://download.pytorch.org/whl/cu124
+#         pip install -r requirements.txt
+#
+# 実測した組み合わせのバージョンを下限に置いています。上限は、壊れることが分かって
+# いるところにだけ付けています。
+
+# --- 音声合成の本体 -------------------------------------------------------
+torch>=2.10.0,<2.11.0
+torchaudio>=2.10.0,<2.11.0
+# transformers が音声まわりで参照します。メタデータが欠けると
+# 「No package metadata was found for torchcodec」でモデル解決ごと失敗します。
+torchcodec>=0.10.0,<0.11.0
+# 5.12 未満ではトークナイザの API が変わります。6 系は未検証です。
+transformers>=5.12.1,<6
+sentencepiece>=0.1.99,<0.2
+safetensors>=0.7.0
+huggingface-hub>=0.34.0
+peft>=0.18.0
+# 音声コーデック（DACVAE）と、合成音声への電子透かし。
+# どちらも PyPI に無いため git から取得します。
+dacvae @ git+https://github.com/facebookresearch/dacvae
+silentcipher @ git+https://github.com/SesameAILabs/silentcipher.git@d46d7d0893a583d8968ab3a6626e2289faec9152
+
+# --- 日本語の解析 ---------------------------------------------------------
+# 本家の pyopenjtalk は Visual Studio のビルド環境を要求します。
+# ビルド済み wheel のある pyopenjtalk-plus を使ってください。
+pyopenjtalk-plus>=0.4.1
+
+# --- API サーバー ---------------------------------------------------------
+fastapi>=0.115.0
+uvicorn>=0.30.0
+pydantic>=2.9.0
+# 管理画面からのモデルのアップロードに使います。
+python-multipart>=0.0.20
+
+# --- 音声とファイルの取り回し ---------------------------------------------
+numpy>=2.0.0
+soundfile>=0.12.0
+pillow>=10.0.0
+pyyaml>=6.0
+
+# --- 追加の音声モデル形式（任意） ------------------------------------------
+# 入れなくてもエンジンは動きます。その場合、この形式の話者が一覧に並ばないだけです。
+# なお style-bert-vits2 は AGPL-3.0 です。配布形態によっては条件が変わります。
+aivmlib>=1.2.0
+style-bert-vits2>=2.5.0
+
+# --- 実行ファイルのビルド（任意） ------------------------------------------
+# コンパイル.bat を使う場合にだけ必要です。
+pyinstaller>=6.20.0

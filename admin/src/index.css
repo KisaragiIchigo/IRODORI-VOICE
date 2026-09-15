@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-ground text-paper-200 font-sans text-body antialiased;
+    /* 墨の地に、紅と常磐がごくわずかに滲む。単色の塗りだと画面が硬くなる。 */
+    background-image:
+      radial-gradient(1200px 600px at 15% -10%, rgba(185, 64, 71, 0.07), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(47, 79, 47, 0.10), transparent 55%);
+    background-attachment: fixed;
+  }
+
+  /* 極細スクロールバー。つまみは触れたときだけ紅を帯びる。 */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(185, 64, 71, 0.5);
+    background-clip: content-box;
+  }
+
+  ::selection {
+    background: rgba(185, 64, 71, 0.35);
+    color: #f8f8ff;
+  }
+
+  /* 入力欄の自動補完で背景が白く浮くのを止める。 */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  textarea:-webkit-autofill {
+    -webkit-text-fill-color: #e6e7f0;
+    -webkit-box-shadow: 0 0 0 1000px #141a16 inset;
+    caret-color: #e6e7f0;
+  }
+
+  /* キーボード操作の輪郭。マウス操作では出さない。 */
+  :focus-visible {
+    outline: 1px solid rgba(185, 64, 71, 0.65);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* 小見出しのラベル。小さめ・大文字・字間広めで余白を作る。 */
+  .label-caps {
+    @apply text-label font-medium uppercase tracking-widest text-paper-400;
+  }
+}

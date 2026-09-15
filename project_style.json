@@ -1,0 +1,133 @@
+{
+  "_readme": "プロジェクトスタイルマニフェスト。エージェントはUIに触れるすべてのタスクの冒頭でこれを読み、ここに無い色・フォント・質感を勝手に導入してはならない。変更はユーザー合意の上でこのファイルを更新し、changelogs.json に記録する。",
+  "meta": {
+    "project": "IRODORI-VOICE",
+    "concept": "動画制作者と実況者が毎日長時間向き合う、ローカル完結のテキスト読み上げソフト。VOICEVOX と同じ手つきで、Irodori-TTS の声を扱える。",
+    "mood_keywords": [
+      "紅と常磐",
+      "雨の石畳",
+      "道具としての静けさ",
+      "高密度インスペクタ",
+      "夜の作業机"
+    ],
+    "created": "2026-09-13",
+    "updated": "2026-09-14",
+    "palette_source": "京都の石畳と和傘（紅 #B94047 / 深緑 #2F4F2F / 白茶 #D2B48C / 白練 #F8F8FF）"
+  },
+  "stack": {
+    "framework": "Vite + React + TypeScript（デスクトップシェルは Electron）",
+    "styling": "Tailwind CSS v3",
+    "ui_primitives": "Radix UI",
+    "motion": "Framer Motion（LazyMotion + m モジュール）",
+    "fonts_delivery": "@fontsource による self-host（外部CDN禁止のため Google Fonts 直リンクは使わない）",
+    "_rule": "スタック変更はユーザーの明示指定のみ"
+  },
+  "palette": {
+    "_base": "4 色（紅・常磐・白茶・白練）を軸に組む。地は白練の対極として、常磐の色相を残したまま明度を落とした墨。",
+    "base_bg": "#0e1210",
+    "base_bg_alt": "#080b09",
+    "surface": "bg-white/[0.02]",
+    "surface_deep": "bg-black/40",
+    "border": "border-white/[0.06]",
+    "border_subtle": "border-white/[0.04]",
+    "beni": {
+      "_why": "主役のアクセント。和傘の紅。塗りつぶしのボタンと選択中の下地に使う。",
+      "DEFAULT": "#b94047",
+      "mid": "#a3373e",
+      "deep": "#8a2b33",
+      "pale": "#e79aa0"
+    },
+    "tokiwa": {
+      "_why": "常磐。そろった・使えるなど、済んだ状態を示す。地が暗いので、文字には pale を使う。",
+      "DEFAULT": "#2f4f2f",
+      "mid": "#3f6b3f",
+      "light": "#6fa06f",
+      "pale": "#a3c9a3"
+    },
+    "shiracha": {
+      "_why": "白茶。足りない・任意など、手を止めさせたいところと、数値の強調に使う。",
+      "DEFAULT": "#d2b48c",
+      "deep": "#a98a64",
+      "pale": "#e6d2b5"
+    },
+    "paper": {
+      "_why": "白練からの階調。文字はここだけを使う。500 は入力欄のプレースホルダ専用で、説明文には使わない。",
+      "100": "#f8f8ff",
+      "200": "#e6e7f0",
+      "300": "#c6c9d5",
+      "400": "#9a9eac",
+      "500": "#6c7080"
+    },
+    "accent_gradient": "from-beni via-beni-mid to-beni-deep",
+    "accent_solid": "#b94047",
+    "accent_glow": "shadow-[0_0_16px_rgba(185,64,71,0.25)]",
+    "accent_badge": "bg-beni/[0.12] text-beni-pale",
+    "focus_ring": "focus:border-beni/55",
+    "danger": "bg-beni/[0.12] border-beni/30 text-beni-pale（塗りつぶしの主要ボタンと違い、薄い地で示す）",
+    "warning": "bg-shiracha/[0.10] border-shiracha/30 text-shiracha",
+    "success": "bg-tokiwa-light/[0.14] border-tokiwa-light/30 text-tokiwa-pale",
+    "text_primary": "text-paper-100 / text-paper-200",
+    "text_secondary": "text-paper-300 / text-paper-400",
+    "text_description_min": "text-xs 以上・透過なしの text-paper-300 / text-paper-400",
+    "voice_chips": {
+      "_why": "話者ごとの識別色。8 人を見分けるために色相を散らす必要があり、基調の 4 色とは別のレイヤーとして扱う。キーはエンジンの color_key と対になっているため名前は変えない。紅だけは基調のアクセントと同じ値へ揃えた。",
+      "shu": "#b94047",
+      "yamabuki": "#e0a13a",
+      "wakatake": "#66b070",
+      "asagi": "#3fa4b8",
+      "rurikon": "#5a72c9",
+      "fuji": "#9a76d0",
+      "kobai": "#dd6f95",
+      "sumire": "#7c86a8"
+    },
+    "_rule": "新しい色はまずここに追記してから使う。UI ファイルへの直書きで色を増やさない"
+  },
+  "typography": {
+    "display": "Archivo（見出し・ロゴ・大きな数値。グロテスク系で骨格が強く、Inter より個性が立つ）",
+    "body": "M PLUS 1（和欧混植をこれ1つで受ける。ウェイト 300/400/500/700 を使い分ける）",
+    "mono": "IBM Plex Mono（再生時間・秒数・パラメータ値の等幅表示）",
+    "jp": "M PLUS 1（モダンゴシック。Noto Sans JP のベタ置きと明朝系は使わない。ラベルは 500 + tracking-wider、本文は 400 + tracking-normal でウェイト差をつける）",
+    "label_style": "text-xs + UPPERCASE + tracking-widest + text-zinc-400",
+    "fluid": "clamp() でリサイズに滑らかに追従（例: clamp(0.75rem, 0.7rem + 0.2vw, 0.875rem)）"
+  },
+  "texture": {
+    "acrylic": true,
+    "backdrop_blur": "backdrop-blur-md",
+    "inset_shadow": "shadow-[inset_0_1px_3px_rgba(0,0,0,0.5)]",
+    "hairline": "境界は 1px 未満に見える極細。border-white/[0.06] を基本、区切り線は border-white/[0.04]"
+  },
+  "density": {
+    "level": "high",
+    "reference": "Adobe Audition のセッションパネル / DaVinci Resolve のインスペクタ",
+    "icon_size": "w-3.5 h-3.5 〜 w-4 h-4",
+    "icon_color": "text-zinc-400",
+    "slider": "極細トラック + 発光数値バッジ",
+    "row_height": "テキスト行リストは 1行あたり最小 44px。連続入力で手が疲れない高さを優先する"
+  },
+  "motion": {
+    "hover": "hover:scale-[1.01]",
+    "active": "active:scale-[0.98]",
+    "tab_switch": "Magic Motion（layoutId による滑らかな遷移）",
+    "disabled": "グレーアウトせず opacity-25〜40",
+    "synthesis_pulse": "合成中の行は朱のヘアラインが呼吸する（2.4s ease-in-out の opacity 往復）",
+    "dialog": "手前へ立ち上がる（200ms / cubic-bezier(0.16,1,0.3,1)）。背後は bg-black/70 + backdrop-blur-[2px] の幕で沈める",
+    "progress": "送信中は極細トラックに朱のグラデーションが伸びる。総量が取れないときは幅 1/3 の棒を breathe させる"
+  },
+  "zindex": {
+    "base": 0,
+    "floating": 40,
+    "modal": 50,
+    "tooltip": 60
+  },
+  "forbidden": [
+    "紫グラデーション on 白背景",
+    "Inter / Roboto / Arial / Outfit / システムフォント頼みのタイポグラフィ",
+    "和文 UI への明朝系フォント（Shippori Mincho 等）",
+    "text-[10px] / text-[11px] や薄すぎるカラーの説明文（paper-500 を説明文へ使うのも不可）",
+    "太いグレー枠・デフォルト影・原色ベタ塗り",
+    "このファイルに無い色やフォントの直書き導入",
+    "外部 CDN からのフォント・スクリプト読み込み（オフライン動作を壊すため）",
+    "zinc / emerald / amber / rose など Tailwind 既定のカラースケール（beni / tokiwa / shiracha / paper へ置き換え済み）"
+  ],
+  "app_text_tone": "アプリ内のヘルプ・設定補足・マニュアル類は「です・ます調（セミフォーマル）」で統一"
+}
