@@ -115,6 +115,14 @@ async def install_model(request: Request, model: UploadFile = File(...)) -> Mode
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except (ValueError, KeyError) as exc:
             raise HTTPException(status_code=400, detail=f"モデルファイルを読み取れませんでした: {exc}") from exc
+        except Exception as exc:
+            # 読み取りライブラリは独自の例外を投げるうえ、版によって API 名も変わる。
+            # 捕まえ損ねると 500 になり、画面には「Internal Server Error」としか出ず、
+            # 原因がエンジンのログにしか残らない。型ではなく内容を返す。
+            raise HTTPException(
+                status_code=400,
+                detail=f"モデルファイルを取り込めませんでした: {type(exc).__name__}: {exc}",
+            ) from exc
     finally:
         temp_path.unlink(missing_ok=True)
 

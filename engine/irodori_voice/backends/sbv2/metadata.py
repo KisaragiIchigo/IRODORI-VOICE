@@ -144,7 +144,7 @@ def install(source: Path) -> InstalledModel:
             metadata = aivmlib.read_aivmx_metadata(handle)
             is_onnx = True
         elif suffix == ".aivm":
-            metadata = aivmlib.read_sbv2_metadata(handle)
+            metadata = aivmlib.read_aivm_metadata(handle)
             is_onnx = False
         else:
             raise ValueError(
