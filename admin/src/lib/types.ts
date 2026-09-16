@@ -121,12 +121,14 @@ export type SeedPreview = {
 
 export type SeedVoiceRequest = {
   name: string;
-  /** 0 〜 2147483647。同じ値なら同じ声になる。 */
+  /** 0 〜 2147483647。この値から声が決まる。 */
   seed: number;
   description?: string;
   color_key?: string;
   /** 表現の指示。空にすると素の声になる。 */
   caption?: string | null;
+  /** 焼き付けるときに読ませる文。試聴に使った文を渡すと、聴いた声がそのまま残る。 */
+  reference_text?: string | null;
 };
 
 export type CloneRequest = {

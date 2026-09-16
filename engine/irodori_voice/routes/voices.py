@@ -17,6 +17,7 @@ from ..backends.irodori.backend import preset_id_from, voice_id_for
 from ..paths import voice_assets_dir
 from ..schemas import (
     SeedPreviewRequest,
+    VoiceBakeReferenceRequest,
     VoiceCapabilitiesOut,
     VoiceCloneFromModelRequest,
     VoiceCreateRequest,
@@ -26,7 +27,7 @@ from ..schemas import (
     VoiceUpdateRequest,
 )
 from ..state import EngineState
-from ..voices import clone
+from ..voices import clone, seed_bake
 from ..voices.icon_store import ALLOWED_ICON_SUFFIXES, MAX_ICON_BYTES, IconDecodeError, icon_store
 from ..voices.store import VoiceStyleDef
 from ..voicevox.speaker_image import icon_png, icon_source
@@ -209,28 +210,34 @@ def create_voice(request: Request, payload: VoiceCreateRequest) -> VoiceOut:
 def create_voice_from_seed(request: Request, payload: VoiceFromSeedRequest) -> VoiceOut:
     """シード値を指定して話者を作る。
 
-    参照音声を持たない話者の声はシードで決まるため、気に入った声の値を
-    そのまま名前付きで保存できる。作成後はどの行でも同じ声で鳴る。
+    そのシードの声を 1 本だけ合成し、参照音声として焼き付ける。参照を持たせないと、
+    シードを固定しても行ごとに別人の声になる（理由は voices/seed_bake.py）。
+    合成を挟むぶん、作成には数秒から十数秒かかる。
     """
 
     state = _state(request)
     if state.store is None or state.irodori is None:
         raise HTTPException(status_code=503, detail="エンジンが初期化されていません。")
 
-    preset = state.store.create(
-        name=payload.name,
-        description=payload.description,
-        color_key=payload.color_key,
-        mode="caption",
-        styles=[
-            VoiceStyleDef(
-                style_id="normal",
-                name="ノーマル",
-                caption=(payload.caption or "").strip() or None,
-            )
-        ],
-        voice_seed=payload.seed,
-    )
+    try:
+        preset = seed_bake.create_voice_from_seed(
+            irodori=state.irodori,
+            store=state.store,
+            name=payload.name,
+            seed=payload.seed,
+            description=payload.description,
+            color_key=payload.color_key,
+            caption=(payload.caption or "").strip() or None,
+            reference_text=payload.reference_text,
+        )
+    except BackendError as exc:
+        raise HTTPException(
+            status_code=503 if not exc.recoverable else 400,
+            detail=str(exc),
+        ) from exc
+
+    if state.service is not None:
+        state.service.clear_cache()
     return _voice_out_for_preset(state, preset)
 
 
@@ -408,6 +415,42 @@ def update_voice(request: Request, voice_id: str, payload: VoiceUpdateRequest) -
         raise HTTPException(status_code=404, detail=f"話者 {voice_id} が見つかりません。") from exc
     except BackendError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if state.service is not None:
+        state.service.clear_cache()
+    return _voice_out_for_preset(state, preset)
+
+
+@router.post("/voices/{voice_id:path}/bake-reference", response_model=VoiceOut)
+def bake_voice_reference(
+    request: Request, voice_id: str, payload: VoiceBakeReferenceRequest
+) -> VoiceOut:
+    """参照音声を持たない話者へ、あとから声を焼き付ける。
+
+    作り直さずに声を固定するための入口。話者 ID が変わらないため、エディタが覚えている
+    割り当ても、付けたアイコンもそのまま残る。合成を挟むぶん数秒から十数秒かかる。
+    """
+
+    state = _state(request)
+    if state.store is None or state.irodori is None:
+        raise HTTPException(status_code=503, detail="エンジンが初期化されていません。")
+
+    try:
+        preset = seed_bake.bake_existing_voice(
+            irodori=state.irodori,
+            store=state.store,
+            preset_id=preset_id_from(voice_id),
+            reference_text=payload.reference_text,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"話者 {voice_id} が見つかりません。") from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except BackendError as exc:
+        raise HTTPException(
+            status_code=503 if not exc.recoverable else 400,
+            detail=str(exc),
+        ) from exc
 
     if state.service is not None:
         state.service.clear_cache()

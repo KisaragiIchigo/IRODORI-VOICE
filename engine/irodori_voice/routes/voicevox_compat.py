@@ -37,7 +37,7 @@ from ..voicevox.manifest_docs import (
 from ..voicevox.portrait import icon_for, portrait_for
 from ..voicevox.speaker_image import icon_base64, portrait_base64
 from ..voicevox.sample_voice import sample_store
-from ..voicevox.query_memory import QueryTextMemory
+from ..voicevox.query_memory import QueryTextMemory, phrase_key
 from ..voicevox.schemas import (
     DEFAULT_OUTPUT_SAMPLING_RATE,
     AccentPhrase,
@@ -55,7 +55,7 @@ from ..synthesis.pipeline import (
 from ..voicevox.speaker_map import SpeakerMap, speaker_uuid_for
 from ..voicevox.user_dict import (
     DEFAULT_PRIORITY,
-    UserDictionary,
+    shared_user_dict,
 )
 from ..state import EngineState
 
@@ -65,7 +65,7 @@ router = APIRouter(tags=["voicevox-compat"])
 ENGINE_UUID = "0b2a5f31-9c4d-4f6a-8e7b-3d1c5a9f2e40"
 
 _query_memory = QueryTextMemory()
-_user_dict = UserDictionary()
+_user_dict = shared_user_dict()
 
 # 本家が名乗るバージョン。外部ツールが下限を見て機能を出し分けることがある。
 COMPAT_ENGINE_VERSION = "0.24.1"
@@ -117,6 +117,46 @@ def _silence_response(payload: AudioQuery) -> Response:
         media_type="audio/wav",
         headers={"Cache-Control": "no-store"},
     )
+
+
+def _text_from_kana(payload: AudioQuery) -> str | None:
+    """AudioQuery に添えておいた元の表記を、読みが一致するときだけ採り出す。
+
+    利用者がエディタで読みを直した場合、``kana`` は直す前の表記のまま送られて
+    くる。読みを組み直して突き合わせ、一致するときだけ採用する。
+    """
+
+    kana = (payload.kana or "").strip()
+    if kana == "":
+        return None
+
+    rebuilt = build_accent_phrases(kana)
+    if not rebuilt or phrase_key(rebuilt) != phrase_key(payload.accent_phrases):
+        return None
+    return kana
+
+
+def _resolve_source_text(payload: AudioQuery) -> str:
+    """合成に使うテキストを決める。
+
+    元の表記が分かればそちらを使う。読みだけで合成すると長音が母音字のまま
+    モデルへ渡り（「カード」が「カアド」）、別の語に化ける。
+
+    記憶はプロセス内にしか無く、エンジンの再起動やプロジェクトの開き直しで
+    外れる。その穴を ``kana`` に載せた表記が埋める。
+    """
+
+    remembered = _query_memory.recall(payload.accent_phrases)
+    if remembered is not None:
+        return remembered
+
+    from_kana = _text_from_kana(payload)
+    if from_kana is not None:
+        # 次からは組み直しを省けるよう覚えておく。
+        _query_memory.remember(payload.accent_phrases, from_kana)
+        return from_kana
+
+    return accent_phrases_to_text(payload.accent_phrases)
 
 
 @router.get("/version")
@@ -268,7 +308,10 @@ def audio_query(
         postPhonemeLength=0.1,
         outputSamplingRate=DEFAULT_OUTPUT_SAMPLING_RATE,
         outputStereo=False,
-        kana=None,
+        # 元の表記を添えて返す。VOICEVOX の AudioQuery は読みしか持たないため、
+        # これが無いと /synthesis 側で漢字混じりの表記を取り戻せない。エディタは
+        # この値をプロジェクトへ保存して送り返すので、エンジンを再起動しても残る。
+        kana=text,
     )
 
 
@@ -326,10 +369,7 @@ def synthesis(
     except KeyError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # 元の表記が分かればそちらを使う。読みだけで合成するより自然な結果になる。
-    text = _query_memory.recall(payload.accent_phrases) or accent_phrases_to_text(
-        payload.accent_phrases
-    )
+    text = _resolve_source_text(payload)
     if text.strip() == "":
         return _silence_response(payload)
 

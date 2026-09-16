@@ -142,6 +142,58 @@ const patches = [
     patched: "      PERIOD_AND_NEW_LINE: splitTextByPeriodAndNewLine,",
   },
   {
+    name: "ｲﾝﾄﾈｰｼｮﾝ欄・長さ欄のタブ",
+    file: join(editorSrc, "components", "Talk", "AudioDetail.vue"),
+    original: `            <QTab name="accent" label="ｱｸｾﾝﾄ" />
+            <QTab
+              name="pitch"
+              label="ｲﾝﾄﾈｰｼｮﾝ"
+              :disable="
+                !(supportedFeatures && supportedFeatures.adjustMoraPitch)
+              "
+            />
+            <QTab
+              name="length"
+              label="長さ"
+              :disable="
+                !(supportedFeatures && supportedFeatures.adjustPhonemeLength)
+              "
+            />
+`,
+    patched: `            <!-- ｲﾝﾄﾈｰｼｮﾝ欄と長さ欄は使わないため、タブを出さない。 -->
+            <QTab name="accent" label="ｱｸｾﾝﾄ" />
+`,
+  },
+  {
+    name: "ｲﾝﾄﾈｰｼｮﾝ欄・長さ欄の切り替えホットキー",
+    file: join(editorSrc, "components", "Talk", "AudioDetail.vue"),
+    original: `registerHotkeyWithCleanup({
+  editor: "talk",
+  name: "ｲﾝﾄﾈｰｼｮﾝ欄を表示",
+  callback: () => {
+    if (supportedFeatures.value?.adjustMoraPitch) {
+      selectedDetail.value = "pitch";
+    }
+  },
+});
+registerHotkeyWithCleanup({
+  editor: "talk",
+  name: "長さ欄を表示",
+  callback: () => {
+    if (supportedFeatures.value?.adjustPhonemeLength) {
+      selectedDetail.value = "length";
+    }
+  },
+});
+registerHotkeyWithCleanup({
+  editor: "talk",
+  name: "全体のイントネーションをリセット",`,
+    patched: `// タブを出していない欄へ 2 / 3 キーで移動しないよう、登録そのものを行わない。
+registerHotkeyWithCleanup({
+  editor: "talk",
+  name: "全体のイントネーションをリセット",`,
+  },
+  {
     name: "テキスト自動分割の説明",
     file: join(editorSrc, "components", "Dialog", "SettingDialog", "SettingDialog.vue"),
     original: "description: '句点と改行を基にテキストを分割します。',",
@@ -499,6 +551,7 @@ if (revert) {
   console.log("  ・貼り付けたテキストが鉤括弧の中の句点では分割されなくなります");
   console.log("  ・メニューの「エンジン」→「音声モデルの管理」が増えます");
   console.log("  ・歌唱に対応した話者がいない間、ソングへの切り替えボタンが出なくなります");
+  console.log("  ・ｱｸｾﾝﾄ欄の隣のｲﾝﾄﾈｰｼｮﾝ欄・長さ欄のタブが出なくなります");
   console.log("  ・起動時の更新確認が失敗しても、エラーとして記録されなくなります");
   console.log("  ・ヘルプの文面が IRODORI-VOICE のものになります");
   console.log("  ・既定テーマが「墨（くらい）」になります");

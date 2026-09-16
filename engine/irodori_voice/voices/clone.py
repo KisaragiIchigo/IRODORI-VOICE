@@ -10,12 +10,10 @@ Style-Bert-VITS2 は声の同一性を強く保つ代わりに、喋り方は学
 
 from __future__ import annotations
 
-import uuid
-
 from .. import audio as audio_utils
 from ..backends.sbv2.backend import Sbv2Backend
 from ..backends.base import BackendError, SynthesisParams
-from ..paths import voice_assets_dir
+from .reference import REFERENCE_SPEAKER_CFG, save_reference_wavs
 from .store import VoicePreset, VoicePresetStore, VoiceStyleDef
 
 # 参照音声の既定文。母音・撥音・促音・拗音が偏らないように選んである。
@@ -74,22 +72,6 @@ CLONE_STYLES: tuple[tuple[str, str, str | None, str | None], ...] = (
     ("fast", "はやくち", "急いで、矢継ぎ早に話している。", "⏩"),
 )
 
-# 参照音声への忠実さ。上げるほど声が寄る、というものではない。
-#
-# 実測（ある話者を写したもの・同一文・同一シード。元の声の F0 中央値は 252Hz）:
-#
-#     cfg  高域(6kHz以上)の比率  F0 中央値   元の声との差
-#     3.0        6.73%            246.2Hz        -5.8Hz
-#     5.0        2.00%            324.3Hz       +72.3Hz
-#     9.0        0.04%            310.7Hz       +58.7Hz
-#
-# 上げると高域が失われ、こもった音になる。9.0 では高域がほぼ消える（AM ラジオのような音）。
-# F0 が下がるのも声が寄ったからではなく、単にこもった結果だった。
-# 音質と声の近さがどちらも最良になる 3.0 を既定にする。
-#
-# なお MeanFlow 蒸留版のチェックポイントでは、この値を含む CFG スケールが
-# すべて 0 に潰される。効かせるには標準版を選んでおく必要がある。
-CLONE_SPEAKER_CFG = 3.0
 
 
 def _synthesize_clips(
@@ -142,18 +124,6 @@ def _synthesize_clips(
     return clips
 
 
-def _save_clips(clips: list[tuple[bytes, float]]) -> list[str]:
-    """合成したクリップをアセット領域へ書き出し、ファイル名を返す。"""
-
-    root = voice_assets_dir()
-    names: list[str] = []
-    for wav, _ in clips:
-        name = f"ref-{uuid.uuid4().hex[:12]}.wav"
-        (root / name).write_bytes(wav)
-        names.append(name)
-    return names
-
-
 def clone_from_aivm(
     *,
     aivm: Sbv2Backend,
@@ -183,7 +153,7 @@ def clone_from_aivm(
         source_style_id=source_style_id,
         lines=lines,
     )
-    reference_files = _save_clips(clips)
+    reference_files = save_reference_wavs([wav for wav, _ in clips])
 
     definitions = CLONE_STYLES if with_emotion_styles else CLONE_STYLES[:1]
     wanted = (normal_caption or "").strip() or None
@@ -193,7 +163,7 @@ def clone_from_aivm(
             name=style_name,
             caption=wanted if style_id == "normal" and wanted else caption,
             emoji=emoji,
-            cfg_scale_speaker=CLONE_SPEAKER_CFG,
+            cfg_scale_speaker=REFERENCE_SPEAKER_CFG,
         )
         for style_id, style_name, caption, emoji in definitions
     ]

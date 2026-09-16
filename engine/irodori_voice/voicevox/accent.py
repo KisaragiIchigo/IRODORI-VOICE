@@ -31,6 +31,12 @@ PAUSE_LENGTH = 0.3
 
 _KANA_ONLY = re.compile(r"[ァ-ヶー]+")
 
+# 単独で 1 モーラを成す母音。長音記号へ戻す判定に使う。
+_STANDALONE_VOWELS = frozenset("アイウエオ")
+
+# 母音の音素。これ以外（撥音・促音・無音）が挟まったら連続とみなさない。
+_VOWEL_PHONEMES = frozenset("aiueo")
+
 logger = logging.getLogger(__name__)
 
 # 代替へ落ちた理由。診断（run_engine.py --diagnose）から参照する。
@@ -182,6 +188,42 @@ def build_accent_phrases(text: str) -> list[AccentPhrase]:
     return _phrases_from_kana(stripped)
 
 
+def _phrase_reading(moras: list[Mora]) -> str:
+    """アクセント句のモーラ列を読みへ直す。
+
+    OpenJTalk のモーラ表記は長音を母音字で表すため、並べるだけでは「カード」が
+    「カアド」、「情報」が「ジョオホオ」になる。Irodori-TTS はテキスト表記から
+    直接音を作るモデルで、この綴りを音にできない（「カアドオ」が別の語に化ける）。
+    そのため、直前と同じ母音が続く箇所を「ー」へ戻す。
+
+    句の最後のモーラは畳まない。「楽天カードを」の「を」のように、直前の母音と
+    一致する助詞が長音へ吸われるのを避けるため。
+    """
+
+    parts: list[str] = []
+    previous_vowel: str | None = None
+
+    for index, mora in enumerate(moras):
+        # 無声化した母音は大文字で来るため、比較の前に揃える。
+        vowel = mora.vowel.lower()
+
+        if (
+            mora.consonant is None
+            and mora.text in _STANDALONE_VOWELS
+            and previous_vowel == vowel
+            and index != len(moras) - 1
+            and parts
+            and parts[-1] != "ー"
+        ):
+            parts.append("ー")
+            continue
+
+        parts.append(mora.text)
+        previous_vowel = vowel if vowel in _VOWEL_PHONEMES else None
+
+    return "".join(parts)
+
+
 def accent_phrases_to_text(phrases: list[AccentPhrase]) -> str:
     """アクセント句から読み上げ用のテキストを復元する。
 
@@ -191,7 +233,7 @@ def accent_phrases_to_text(phrases: list[AccentPhrase]) -> str:
 
     parts: list[str] = []
     for phrase in phrases:
-        parts.append("".join(mora.text for mora in phrase.moras))
+        parts.append(_phrase_reading(phrase.moras))
         if phrase.pause_mora is not None:
             parts.append("、")
         elif phrase.is_interrogative:

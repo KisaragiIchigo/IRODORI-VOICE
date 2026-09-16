@@ -14,8 +14,8 @@ import { SeedForm } from "./SeedForm";
 import { VoiceCard } from "./VoiceCard";
 
 const MODES = [
-  { id: "clone", label: "声を借りる" },
   { id: "seed", label: "シードから" },
+  { id: "clone", label: "声を借りる" },
 ] as const;
 
 type Props = {
@@ -28,7 +28,7 @@ type Props = {
 
 export function VoicePanel({ voices, loading, error, reload, onNotify }: Props) {
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<string>("clone");
+  const [mode, setMode] = useState<string>("seed");
   // アイコンの差し替えは URL を変えない。取り直させるために話者ごとの世代を持つ。
   const [iconVersions, setIconVersions] = useState<Record<string, number>>({});
 
@@ -171,6 +171,12 @@ export function VoicePanel({ voices, loading, error, reload, onNotify }: Props) 
             }
             onPickIcon={(file) => pickIcon(voice, file)}
             onClearIcon={() => clearIcon(voice)}
+            onBake={() =>
+              void run(async () => {
+                await api.bakeVoiceReference(voice.voice_id);
+                return `${voice.name} の声を固定しました。どの行でも同じ声になります。`;
+              })
+            }
           />
         ))}
       </div>

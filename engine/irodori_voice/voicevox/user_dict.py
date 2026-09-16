@@ -241,6 +241,27 @@ class UserDictionary:
         with self._lock:
             return dict(self.words)
 
+    def reading_overrides(self) -> list[tuple[str, str]]:
+        """表記とその読みの対応を、長い表記から順に返す。
+
+        Irodori-TTS はモデルへテキスト表記しか渡せず、読み仮名を受け取る口が
+        ない。そのため登録語は合成へ渡すテキストの上で置き換えるしかなく、
+        この一覧がその材料になる。OpenJTalk を経由する話者には ``.dic`` 側で
+        効くため、こちらは使わない。
+
+        長い表記を先に返すのは、「楽天」と「楽天ペイ」の両方が登録されたときに
+        短い方が先に当たって残りが崩れるのを避けるため。
+        """
+
+        with self._lock:
+            pairs = [
+                (word.surface, word.pronunciation)
+                for word in self.words.values()
+                if word.surface and word.pronunciation
+            ]
+        pairs.sort(key=lambda pair: len(pair[0]), reverse=True)
+        return pairs
+
     def add(
         self,
         *,
@@ -304,3 +325,20 @@ class UserDictionary:
                 self.words[word_uuid] = UserDictWord.from_json(raw)
             self._save()
         self.apply()
+
+
+_shared_dictionary: UserDictionary | None = None
+
+
+def shared_user_dict() -> UserDictionary:
+    """エンジン内で共有するユーザー辞書。
+
+    互換 API（登録・削除）と Irodori バックエンド（読みの置換）が同じ内容を
+    見る必要がある。別々に読み込むと、登録した語が合成へ反映されるまでに
+    エンジンの再起動を挟むことになる。
+    """
+
+    global _shared_dictionary
+    if _shared_dictionary is None:
+        _shared_dictionary = UserDictionary()
+    return _shared_dictionary

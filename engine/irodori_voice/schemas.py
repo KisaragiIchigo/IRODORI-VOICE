@@ -11,10 +11,13 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 from .vendor.irodori_tts.duration import ALLOWED_ANNOTATION_EMOJIS
+from .voices.reference import SEED_REFERENCE_TEXT
 
 MAX_TEXT_LENGTH = 2000
 MAX_CAPTION_LENGTH = 400
 MAX_REFERENCE_LINE_LENGTH = 200
+# 試聴と焼き付けで読ませる文の上限。長くするほど待ち時間がそのまま伸びる。
+MAX_SEED_PREVIEW_LENGTH = 120
 
 
 class VoiceStyleOut(BaseModel):
@@ -152,8 +155,9 @@ class VoiceCreateRequest(BaseModel):
 class VoiceFromSeedRequest(BaseModel):
     """シード値を指定して話者を作る。
 
-    参照音声を持たない話者の声はシードで決まる。気に入った声のシードを
-    名前付きで残すための入口。
+    シードの声を 1 本合成し、それを参照音声として焼き付けた話者になる。
+    ``reference_text`` はそのとき読ませる文で、試聴に使った文をそのまま渡せば、
+    聴いたとおりの声が保存される。
     """
 
     name: str = Field(..., min_length=1, max_length=80)
@@ -161,16 +165,24 @@ class VoiceFromSeedRequest(BaseModel):
     description: str = Field("", max_length=300)
     color_key: str = Field("shu", min_length=1, max_length=40)
     caption: str | None = Field(None, max_length=MAX_CAPTION_LENGTH)
+    reference_text: str | None = Field(None, min_length=1, max_length=MAX_SEED_PREVIEW_LENGTH)
+
+
+class VoiceBakeReferenceRequest(BaseModel):
+    """参照音声を持たない話者へ、あとから声を焼き付ける。"""
+
+    reference_text: str | None = Field(None, min_length=1, max_length=MAX_SEED_PREVIEW_LENGTH)
 
 
 class SeedPreviewRequest(BaseModel):
     """話者を作らずに、シード値の声を試す。
 
     保存の前に声を確かめるための入口。合成そのものは通常の経路を通る。
+    既定文は焼き付けに使う文と同じで、試聴した直後に作れば同じ音がそのまま参照になる。
     """
 
     seed: int = Field(..., ge=0, le=2**31 - 1)
-    text: str = Field("この声で読み上げます。いかがでしょうか。", min_length=1, max_length=120)
+    text: str = Field(SEED_REFERENCE_TEXT, min_length=1, max_length=MAX_SEED_PREVIEW_LENGTH)
     caption: str | None = Field(None, max_length=MAX_CAPTION_LENGTH)
 
 

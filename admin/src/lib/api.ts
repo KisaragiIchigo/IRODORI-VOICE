@@ -104,6 +104,12 @@ export const api = {
   createVoiceFromSeed: (payload: SeedVoiceRequest) =>
     postJson<Voice>("/voices/from-seed", payload),
 
+  /** 参照音声を持たない話者へ、あとから声を焼き付ける。合成を挟むため十数秒かかる。 */
+  bakeVoiceReference: (voiceId: string, referenceText?: string | null) =>
+    postJson<Voice>(`/voices/${voiceId}/bake-reference`, {
+      reference_text: referenceText ?? null,
+    }),
+
   listModels: () => getJson<InstalledModel[]>("/aivm"),
 
   /** 対応形式のモデルを 1 ファイル取り込む。 */

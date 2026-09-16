@@ -12,7 +12,9 @@ import { SeedPreviewPanel } from "./SeedPreviewPanel";
 
 /** エンジンが受け付ける上限。schemas.py の VoiceFromSeedRequest と対を成す。 */
 const MAX_SEED = 2 ** 31 - 1;
-const DEFAULT_TEST_TEXT = "この声で読み上げます。いかがでしょうか。";
+/** 試聴と焼き付けの既定文。voices/reference.py の SEED_REFERENCE_TEXT と同じものを置く。 */
+const DEFAULT_TEST_TEXT =
+  "こんにちは。今日はいい天気ですね。設定の画面から、音量や話す速さをゆっくり変えられます。";
 
 function randomSeed(): number {
   return Math.floor(Math.random() * (MAX_SEED + 1));
@@ -26,7 +28,7 @@ type Props = {
   onNotify: (kind: "success" | "error" | "info", message: string) => void;
 };
 
-/** 音声モデルを持たなくても話者を作れる経路。声はシード値だけで決まる。 */
+/** 音声モデルを持たなくても話者を作れる経路。シードで決めた声を参照音声として焼き付ける。 */
 export function SeedForm({ busy, onSubmit, onNotify }: Props) {
   const [name, setName] = useState("");
   const [seed, setSeed] = useState<number>(() => randomSeed());
@@ -68,9 +70,9 @@ export function SeedForm({ busy, onSubmit, onNotify }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-label leading-relaxed text-paper-400">
-        参照音声を持たない話者の声は、シード値だけで決まります。音声モデルが 1 つも無くても作れます。
-        同じ値からは必ず同じ声になるため、気に入った声はその数字ごと残しておけます。
-        下の「この声を試す」で、作る前に聴いて確かめられます。
+        シード値で声を決めて、その声を参照音声として焼き付けます。音声モデルが 1 つも無くても作れます。
+        下の「この声を試す」で聴いた音がそのまま話者の声になるため、気に入った音が出たら、
+        試す文を変えずに保存してください。作成には十数秒かかります。
       </p>
 
       <div className="grid gap-3 md:grid-cols-2">
@@ -138,7 +140,8 @@ export function SeedForm({ busy, onSubmit, onNotify }: Props) {
           </Button>
         </div>
         <p className="text-label leading-relaxed text-paper-400">
-          試しても話者は作られません。気に入るまで引き直して、決まったら下のボタンで保存してください。
+          試しても話者は作られません。ここで読ませた文がそのまま参照音声になるため、
+          聴いた音と保存される声が一致します。
         </p>
 
         {preview ? <SeedPreviewPanel url={preview.url} meta={preview.meta} /> : null}
@@ -153,7 +156,7 @@ export function SeedForm({ busy, onSubmit, onNotify }: Props) {
           invalidate();
         }}
         includeVoiceTemplates
-        hint="読み上げ全体にかかる指定です。この話者は参照音声を持たないため、声そのものもここで変わります。空のままにするとシードだけで声が決まります。試聴にも反映されます。"
+        hint="読み上げ全体にかかる指定です。焼き付ける声にも反映されるため、変えると声そのものが変わります。試聴にも同じ指定が入ります。"
       />
 
       <Button
@@ -168,10 +171,11 @@ export function SeedForm({ busy, onSubmit, onNotify }: Props) {
             color_key: colorKey,
             description: `シード ${seed} から作った話者`,
             caption: caption.trim() || null,
+            reference_text: testText.trim() || null,
           })
         }
       >
-        {busy ? "作成しています…" : "このシードで話者を作る"}
+        {busy ? "声を焼き付けています…" : "このシードで話者を作る"}
       </Button>
     </div>
   );

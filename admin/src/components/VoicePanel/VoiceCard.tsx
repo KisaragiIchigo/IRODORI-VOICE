@@ -1,4 +1,4 @@
-import { Trash2 } from "lucide-react";
+import { Anchor, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import type { Voice } from "../../lib/types";
@@ -16,6 +16,7 @@ type Props = {
   onDelete: (voiceId: string) => void;
   onPickIcon: (file: File) => void;
   onClearIcon: () => void;
+  onBake: () => void;
 };
 
 export function VoiceCard({
@@ -25,9 +26,13 @@ export function VoiceCard({
   onDelete,
   onPickIcon,
   onClearIcon,
+  onBake,
 }: Props) {
   const [confirming, setConfirming] = useState(false);
   const hex = VOICE_COLOR_HEX[voice.color_key] ?? VOICE_COLOR_HEX.shu;
+  // 参照音声を持たない Irodori-TTS の話者は、読み上げる文の長さで声が動く。
+  // 同梱話者は書き換えられないため、声を固定できるのは自分で作った話者だけ。
+  const unfixed = voice.backend_id === "irodori" && !voice.has_reference && !voice.is_builtin;
 
   return (
     <Card>
@@ -83,6 +88,7 @@ export function VoiceCard({
 
           <div className="flex flex-wrap gap-1.5 pt-0.5">
             {voice.has_reference ? <Badge tone="success">参照音声で作成</Badge> : null}
+            {unfixed ? <Badge tone="warning">声が固定されていません</Badge> : null}
             {voice.capabilities.emoji_style ? <Badge tone="neutral">絵文字で表情</Badge> : null}
             {voice.capabilities.pitch ? <Badge tone="neutral">音高調整</Badge> : null}
             {voice.capabilities.intonation ? <Badge tone="neutral">抑揚調整</Badge> : null}
@@ -90,6 +96,23 @@ export function VoiceCard({
               <span className="font-mono">{(voice.sample_rate / 1000).toFixed(1)}kHz</span>
             </Badge>
           </div>
+
+          {unfixed ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-shiracha/30 bg-shiracha/[0.10] px-2.5 py-2">
+              <p className="min-w-[19rem] flex-1 text-label leading-relaxed text-paper-300">
+                読み上げる文の長さで声が変わり、行ごとに別人のように聞こえます。
+                1 度だけ合成して参照音声として保存すると、どの行でも同じ声になります。
+              </p>
+              <Button
+                className="shrink-0"
+                icon={<Anchor className="h-3.5 w-3.5" />}
+                onClick={onBake}
+                disabled={busy}
+              >
+                声を固定する
+              </Button>
+            </div>
+          ) : null}
         </div>
       </CardBody>
     </Card>

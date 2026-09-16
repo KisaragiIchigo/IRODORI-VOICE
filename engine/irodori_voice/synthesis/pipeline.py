@@ -123,7 +123,9 @@ def synthesize_pipeline(
 
     return PipelineResult(
         audio=formatted,
-        used_seed=seed,
+        # ここで導出した値は、話者がシードを持つ場合にバックエンドが上書きする。
+        # 報告するのは実際に合成へ渡った値でなければ、シードを疑う手掛かりにならない。
+        used_seed=joined.used_seed,
         cached=cached,
         segment_count=len(segments),
         stage_timings=joined.stage_timings,

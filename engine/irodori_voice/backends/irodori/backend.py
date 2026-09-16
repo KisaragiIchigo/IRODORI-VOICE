@@ -36,6 +36,8 @@ from ..base import (
     VoiceInfo,
     VoiceStyle,
 )
+from ...voicevox.user_dict import shared_user_dict
+from .reading_overrides import apply_reading_overrides
 from .reference_cache import ReferenceLatentCache
 from .runtime_pool import RuntimePool
 
@@ -279,7 +281,9 @@ class IrodoriBackend:
         if caption is not None and caption.strip() == "":
             caption = None
 
-        text = _apply_style_emoji(params.text, style.emoji)
+        # 読みの指定はモデルへ渡せないため、辞書の登録語は表記の側で当てる。
+        text = apply_reading_overrides(params.text, shared_user_dict().reading_overrides())
+        text = _apply_style_emoji(text, style.emoji)
 
         request = SamplingRequest(
             text=text,
