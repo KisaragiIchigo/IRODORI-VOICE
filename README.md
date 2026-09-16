@@ -36,9 +36,10 @@ Irodori-TTS を、VOICEVOX のエディタからそのまま使えるように�
 
 ## 機能ハイライト
 
-- 🔌 **VOICEVOX ENGINE 互換 API** — `/audio_query` `/synthesis` `/speakers` ほか 26 のエンドポイントを本家と同じ形で提供します。VOICEVOX エディタ、ゆっくりMovieMaker、AviUtl プラグインから区別なく使えます。
+- 🔌 **VOICEVOX ENGINE 互換 API** — `/audio_query` `/synthesis` `/speakers` ほか 30 のエンドポイントを本家と同じ形で提供します。VOICEVOX エディタ、ゆっくりMovieMaker、AviUtl プラグインから区別なく使えます。
 - 📖 **ユーザー辞書が「完全に」効きます** — エディタの仕様で強制的に全角保存される英数字も、内部のNFKC正規化により大文字小文字・半角全角（カンマ等含む）を区別せず本文と完璧にマッチさせます。辞書更新時にはエンジンのキャッシュが即時クリアされるため、即座に新しい読みが音声と画面下のカタカナ（アクセント句表示）の両方へ反映されます。
-- ⏩ **ハイブリッド倍速（高品質タイムストレッチ）機能** — エディタで1.2倍速以上を指定すると、AIには安全な1.2倍速で生成させ、背後でプロ用DSP（ボーカル特化チューニング済みのフェーズボコーダー）がピッチを保ったまま倍速化します。これにより、拡散モデル特有の早口指定時の幻覚暴走（宇宙語化）を完全に防ぎ、高音質のまま何倍速でも出力できます。
+- 📝 **フレーズ分割辞書** — 長い複合語がひと塊のまま読まれて崩れる場合に、`word_splits.txt` へ「東京特許許可局=東京_特許許可局」のように登録しておくと、外部ツールから届いたテキストへエンジンが自動で当てます。読点（、）で区切ればそこで間が空き、空白またはアンダースコアで区切れば、間を空けずにアクセント句だけが分かれます。
+- ⏩ **ハイブリッド倍速（高品質タイムストレッチ）機能** — エディタで話速を変更した際、AIには一番安定する「1.0倍速」に完全固定して生成させ、背後でプロ用DSP（ボーカル特化チューニング済みのフェーズボコーダー）がピッチを保ったまま指定速度へ伸縮させます。これにより、拡散モデル特有の早口指定時の幻覚暴走（宇宙語・言語障害化）を完全に防ぎ、高音質のまま全速度域に対応できます。
 - 🧠 **シード値生成時の安定化パッチ** — 参照音声なし（シード値）で架空の話者を生成する際、AIのテキストへの忠実度（cfg_scale_text）を内部で強制ブーストし、辞書の読み飛ばしや発音のブレを強力に抑え込みます。
 - 🎛 **できないことは `engine_manifest` で申告** — モーラ単位の音高・長さ調整には対応しないため、エディタ側がそのコントロールを自動で無効化します。効かないつまみを触らせません。
 - ✂️ **長文を自動で区切ります** — 句読点を見て 1 区間 30〜40 文字へ割り、同じ声のまま繋ぎ直します。Irodori-TTS の 30 秒制限で末尾が切れることがなくなり、待ち時間も短くなります。
@@ -370,7 +371,8 @@ IRODORI-VOICE/
 │   ├── irodori-theme.ts           # 和風 2 テーマ（彩／墨）の定義
 │   ├── irodori-icon.png           # タイトルバーと配布 exe のアイコン（和傘）
 │   ├── enable-auto-engine.mjs     # エディタからのエンジン自動起動を有効にする
-│   ├── patch-editor.mjs           # 長文警告の閾値、貼り付け分割、管理画面の組み込み
+│   ├── patch-editor.mjs           # 宣言どおりに置換を当て、--revert で本家へ戻す
+│   ├── editor-patch-definitions.mjs # エディタのどこへ何を当てるかの宣言
 │   └── editor-patch/              # エディタへ追加する画面と、貼り付け分割・辞書ファイルの処理
 │       └── help/                  # ヘルプの文面（利用規約・使い方・Q&A ほか）
 │
@@ -420,9 +422,26 @@ IRODORI-VOICE/
         ├── audio.py               # 音量・無音・連結・リサンプル・wav エンコード
         ├── diagnostics.py         # 依存ライブラリの自己診断（--diagnose）
         ├── routes/
-        │   ├── voicevox_compat.py # VOICEVOX ENGINE 互換エンドポイント（26 本）
+        │   ├── voicevox_compat/   # VOICEVOX ENGINE 互換エンドポイント（30 本）
+        │   │   ├── __init__.py    # 各ファイルのルーターを 1 本へ束ねるバレル
+        │   │   ├── shared.py      # 名乗り・話者 ID の対応付け・元テキストの記憶
+        │   │   ├── text_resolution.py # アクセント句の組み立てと元の表記の取り戻し
+        │   │   ├── engine_info.py # バージョン・マニフェスト・対応状況の申告
+        │   │   ├── speakers.py    # 話者の一覧・詳細・読み込みの準備
+        │   │   ├── word_splits.py # フレーズ分割辞書の読み書き（HTTP の口だけ）
+        │   │   ├── query.py       # /audio_query・/accent_phrases・/mora_data
+        │   │   ├── synthesis.py   # /synthesis・/multi_synthesis・/connect_waves
+        │   │   ├── user_dict.py   # ユーザー辞書（本家形式と AivisSpeech 形式）
+        │   │   └── unsupported.py # 応えない機能（歌唱・モーフィング）の口
         │   ├── system.py          # 状態・デバイス・設定（/api 配下）
-        │   ├── voices.py          # 話者プリセットの作成／編集／削除（/api 配下）
+        │   ├── voices/            # 話者プリセットの作成／編集／削除（/api 配下）
+        │   │   ├── __init__.py    # ルーターを束ねるバレル（登録順が照合順になる）
+        │   │   ├── shared.py      # プリセットから応答への変換、アップロードの受け止め
+        │   │   ├── icon.py        # 話者アイコンの取得・差し替え・取り消し
+        │   │   ├── reference.py   # 参照音声の追加・削除・一覧と、声の焼き付け
+        │   │   ├── creation.py    # シード／参照音声／モデル／埋め込みからの作成
+        │   │   ├── preview.py     # 話者を残さずシードの声だけを試す
+        │   │   └── crud.py        # 一覧・作成・書き換え・複製・削除
         │   ├── synthesis.py       # 合成・一括書き出し・先読み（/api 配下）
         │   ├── models.py          # 合成モデル（チェックポイント）の一覧と切り替え（/api 配下）
         │   ├── library.py         # 音声モデルの取り込みと削除（/api 配下）
@@ -436,14 +455,19 @@ IRODORI-VOICE/
         │       ├── run_segments.py         # 区間を順に合成
         │       ├── join_segments.py        # 波形を連結
         │       ├── apply_low_band_restore.py # 痩せた低域だけ持ち上げる
+        │       ├── apply_speed_scale.py     # 合成後の波形を指定の話速へ伸縮
         │       └── apply_output_format.py  # レート変換とステレオ化
         ├── voicevox/
         │   ├── schemas.py         # AudioQuery / AccentPhrase / Mora
         │   ├── accent.py          # ラベルからのアクセント句生成とカタカナ代替
         │   ├── labels.py          # フルコンテキストラベルの解析と句へのグループ化
         │   ├── phonemes.py        # 音素（子音・母音）とカタカナの対応表
-        │   ├── user_dict.py       # ユーザー辞書と OpenJTalk への反映
+        │   ├── user_dict/          # ユーザー辞書
+        │   │   ├── __init__.py     # 外から見える名前を通すバレル
+        │   │   ├── word.py         # 登録語 1 つの表現と naist-jdic の決まりごと
+        │   │   └── dictionary.py   # 語の保管と OpenJTalk の解析への反映
         │   ├── aivis_dict.py      # AivisSpeech の辞書ファイルとの相互変換
+        │   ├── word_splits.py     # フレーズ分割辞書の読み書きと区切りマーカーの扱い
         │   ├── speaker_map.py     # 整数の話者 ID と内部 ID の対応付け
         │   ├── query_memory.py    # AudioQuery から元テキストを引く記憶
         │   ├── sample_voice.py    # 話者一覧で試聴するサンプル音声の作り置き
@@ -483,6 +507,9 @@ IRODORI-VOICE/
 [VOICEVOX エディタ / 外部ツール]
     │  POST /audio_query?text=...&speaker=<整数ID>
     ▼
+[word_splits] フレーズ分割辞書を当て、区切りを内部マーカーへ畳む
+    │
+    ▼
 [accent.py] OpenJTalk でアクセント句を生成（ユーザー辞書を適用済み）
     │  元テキストを query_memory へ控える
     ▼
@@ -491,6 +518,7 @@ IRODORI-VOICE/
     ▼
 [speaker_map] 整数 ID から内部の voice_id / style_id へ変換
 [query_memory] AudioQuery の読みから元テキストを引き当てる
+[word_splits] フレーズ分割のマーカーを落とす（残すと間として読まれる）
     │
     ▼
 ┌─ synthesis/pipeline.py（オーケストレータ）─────────────────┐
