@@ -166,6 +166,13 @@ def build_accent_phrases(text: str) -> list[AccentPhrase]:
     if stripped == "":
         return []
 
+    from .user_dict import shared_user_dict
+    from ..backends.irodori.reading_overrides import apply_reading_overrides
+    
+    # UIのカタカナ表示（OpenJTalk解析）にも反映させるため、解析前に全角半角無視の置換を適用する
+    overrides = shared_user_dict().reading_overrides()
+    stripped = apply_reading_overrides(stripped, overrides)
+
     if not pyopenjtalk_available():
         last_fallback_reason = "pyopenjtalk を読み込めません。"
         logger.warning("pyopenjtalk が無いため、アクセント句をカタカナから組み立てます。")
@@ -224,11 +231,19 @@ def _phrase_reading(moras: list[Mora]) -> str:
     return "".join(parts)
 
 
+_KANA_TO_HIRA = str.maketrans(
+    "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポァィゥェォャュョッヴ",
+    "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをんがぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽぁぃぅぇぉゃゅょっゔ"
+)
+
 def accent_phrases_to_text(phrases: list[AccentPhrase]) -> str:
     """アクセント句から読み上げ用のテキストを復元する。
 
     元の表記（漢字混じり）は AudioQuery に含まれないため、ここで得られるのは
     カタカナの読み。元テキストが分かる場合は、呼び出し側がそちらを優先する。
+    
+    Irodori-TTSはカタカナを外来語風に読むため、UIで手動編集された読みを
+    モデルへ渡す際はひらがなへ変換する。
     """
 
     parts: list[str] = []
@@ -238,4 +253,6 @@ def accent_phrases_to_text(phrases: list[AccentPhrase]) -> str:
             parts.append("、")
         elif phrase.is_interrogative:
             parts.append("?")
-    return "".join(parts)
+    
+    katakana_text = "".join(parts)
+    return katakana_text.translate(_KANA_TO_HIRA)

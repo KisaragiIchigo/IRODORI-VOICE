@@ -285,12 +285,18 @@ class IrodoriBackend:
         text = apply_reading_overrides(params.text, shared_user_dict().reading_overrides())
         text = _apply_style_emoji(text, style.emoji)
 
+        cfg_scale_text = float(style.cfg_scale_text)
+        if preset.mode == "caption":
+            # 参照音声なし（シード）の場合はAIの幻覚が暴走しやすく、ひらがなや辞書指定を無視しがち。
+            # テキスト条件の拘束力（cfg_scale_text）を強制的に底上げして、辞書への食いつきを改善する。
+            cfg_scale_text = max(cfg_scale_text, 5.0)
+
         request = SamplingRequest(
             text=text,
             caption=caption,
             seconds=None,
             duration_scale=duration_scale,
-            cfg_scale_text=float(style.cfg_scale_text),
+            cfg_scale_text=cfg_scale_text,
             cfg_scale_caption=caption_scale,
             cfg_scale_speaker=float(style.cfg_scale_speaker),
             # プリセットにシードが設定されていれば、要求の指定より優先する。

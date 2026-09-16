@@ -13,6 +13,14 @@ Irodori-TTS は ``SamplingRequest.text`` の表記から直接音を作るモデ
 from __future__ import annotations
 
 
+_KANA_TO_HIRA = str.maketrans(
+    "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポァィゥェォャュョッヴ",
+    "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをんがぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽぁぃぅぇぉゃゅょっゔ"
+)
+
+import re
+import unicodedata
+
 def apply_reading_overrides(text: str, overrides: list[tuple[str, str]]) -> str:
     """登録された表記を、その読みへ置き換える。
 
@@ -21,7 +29,18 @@ def apply_reading_overrides(text: str, overrides: list[tuple[str, str]]) -> str:
     「ラクテンペイ」ではなく「ラクテン ペイ」のように割れるため。
     """
 
+    # 本文と辞書の両方をNFKC正規化して、全角/半角の違いを吸収する。
+    text = unicodedata.normalize("NFKC", text)
+
     for surface, pronunciation in overrides:
-        if surface in text:
-            text = text.replace(surface, pronunciation)
+        surface_nfkc = unicodedata.normalize("NFKC", surface)
+        # VOICEVOXエディタは辞書の「読み」をカタカナで強制するが、
+        # Irodori-TTSにカタカナをそのまま渡すと外来語のような不自然なイントネーションになる。
+        # そこで、置換前にカタカナをひらがなへ変換する。
+        pronunciation_hira = pronunciation.translate(_KANA_TO_HIRA)
+        
+        # 大文字小文字を無視して置換
+        pattern = re.compile(re.escape(surface_nfkc), flags=re.IGNORECASE)
+        text = pattern.sub(pronunciation_hira, text)
+        
     return text

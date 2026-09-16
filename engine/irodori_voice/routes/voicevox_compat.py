@@ -330,7 +330,26 @@ def accent_phrases(
     except KeyError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    phrases = build_accent_phrases(text)
+    phrases = build_accent_phrases(text.replace("'", "") if is_kana else text)
+    
+    if is_kana and len(phrases) > 1:
+        # Dictionary UI passes Katakana + "ガ'". We must return it as a single phrase.
+        combined_moras = []
+        for p in phrases:
+            combined_moras.extend(p.moras)
+        # Parse the accent from the AquesTalk string if possible, or just default to 0
+        accent = 0
+        if "'" in text:
+            # Very basic fallback for AquesTalk accent position
+            # Count Katakana characters before the "'"
+            import re
+            m = re.search(r"^([ァ-ヴー]+)'", text)
+            if m:
+                # Count moras
+                from ..voicevox.user_dict import count_moras
+                accent = count_moras(m.group(1))
+        phrases = [AccentPhrase(moras=combined_moras, accent=accent, pause_mora=None, is_interrogative=False)]
+
     if phrases:
         _query_memory.remember(phrases, text)
     return phrases
@@ -564,23 +583,27 @@ def get_user_dict() -> dict[str, dict]:
 
 @router.post("/user_dict_word", response_model=str)
 def add_user_dict_word(
+    request: Request,
     surface: str = Query(..., min_length=1, max_length=80),
     pronunciation: str = Query(..., min_length=1, max_length=80),
     accent_type: int = Query(..., ge=0),
     word_type: str | None = Query(None),
     priority: int | None = Query(None, ge=0, le=10),
 ) -> str:
-    return _user_dict.add(
+    res = _user_dict.add(
         surface=surface,
         pronunciation=pronunciation,
         accent_type=accent_type,
         word_type=word_type or "PROPER_NOUN",  # type: ignore[arg-type]
         priority=priority if priority is not None else DEFAULT_PRIORITY,
     )
+    _state(request).registry.clear_cache()
+    return res
 
 
 @router.put("/user_dict_word/{word_uuid}", status_code=204)
 def rewrite_user_dict_word(
+    request: Request,
     word_uuid: str,
     surface: str = Query(..., min_length=1, max_length=80),
     pronunciation: str = Query(..., min_length=1, max_length=80),
@@ -597,14 +620,16 @@ def rewrite_user_dict_word(
             word_type=word_type,  # type: ignore[arg-type]
             priority=priority,
         )
+        _state(request).registry.clear_cache()
     except KeyError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.delete("/user_dict_word/{word_uuid}", status_code=204)
-def delete_user_dict_word(word_uuid: str) -> None:
+def delete_user_dict_word(request: Request, word_uuid: str) -> None:
     try:
         _user_dict.delete(word_uuid)
+        _state(request).registry.clear_cache()
     except KeyError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
