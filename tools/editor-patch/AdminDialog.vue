@@ -6,6 +6,7 @@
     transitionShow="jump-up"
     transitionHide="jump-down"
     class="admin-dialog transparent-backdrop"
+    @hide="reloadCharacters"
   >
     <div class="admin-shell">
       <div class="admin-bar">
@@ -81,6 +82,24 @@ watch(
 // 話者を足した直後など、中身を取り直したいときに使う。
 const reload = () => {
   generation.value = Date.now();
+};
+
+/**
+ * この画面を閉じたら、エディタが持っている話者一覧を取り直す。
+ *
+ * エディタは起動時に一度だけ /speakers を読む作りで、あとから増えた話者は
+ * 起動し直すまで現れない。この画面ではモデルの取り込みと話者の作成ができる
+ * ため、閉じた時点で古くなっている可能性がある。
+ *
+ * 閉じるボタン・ESC・枠の外側のどれで閉じても通るよう、QDialog の hide で受ける。
+ * 失敗しても操作の邪魔はしない。取り直せないだけで、起動し直せば反映される。
+ */
+const reloadCharacters = () => {
+  for (const engineId of store.state.engineIds) {
+    void store.actions.LOAD_CHARACTER({ engineId }).catch(() => {
+      // 閉じたあとの更新なので、握って進む。
+    });
+  }
 };
 </script>
 
