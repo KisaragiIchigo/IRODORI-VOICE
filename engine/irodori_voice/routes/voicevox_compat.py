@@ -394,18 +394,20 @@ def synthesis(
     if text.strip() == "":
         return _silence_response(payload)
 
+    requested_speed = float(payload.speedScale)
+    # AIが宇宙語を話し始めるのを防ぐため、AIへの指示速度は1.2倍を上限とする
+    ai_speed = max(0.5, min(1.2, requested_speed))
+
     params = SynthesisParams(
         text=text,
         voice_id=voice_id,
         style_id=style_id,
-        speed=max(0.5, min(2.0, float(payload.speedScale))),
+        speed=ai_speed,
         volume=max(0.0, min(2.0, float(payload.volumeScale))),
         pitch=max(-0.15, min(0.15, float(payload.pitchScale))),
         intonation=max(0.0, min(2.0, float(payload.intonationScale))),
         pre_silence=max(0.0, min(10.0, float(payload.prePhonemeLength))),
         post_silence=max(0.0, min(10.0, float(payload.postPhonemeLength))),
-        # シードは渡さない。パイプラインが話者から安定した値を導出する。
-        # テキストから導出すると行ごとに別人になり、hash() を使うと再起動で声が変わる。
         seed=None,
     )
 
@@ -426,9 +428,6 @@ def synthesis(
             low_band=LowBandPolicy(enabled=settings.restore_low_band),
         )
     except BackendError as exc:
-        # 回復不能な要因（モデル形式が非対応など）は 503、
-        # 要求の内容で直せるものは 400 として返す。500 だと
-        # エディタ側が理由を出さず「エラーが発生しました」で終わってしまう。
         raise HTTPException(
             status_code=503 if not exc.recoverable else 400,
             detail=str(exc),
@@ -436,8 +435,46 @@ def synthesis(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    wav_bytes = result.audio.wav
+    if requested_speed > 1.2:
+        try:
+            import io
+            import soundfile as sf
+            import numpy as np
+            from pedalboard import time_stretch
+            
+            stretch_factor = requested_speed / ai_speed
+            with io.BytesIO(wav_bytes) as f:
+                audio, sr = sf.read(f)
+            
+            audio = audio.astype(np.float32)
+            if audio.ndim == 1:
+                audio = audio[None, :]
+            else:
+                audio = audio.T
+                
+            stretched = time_stretch(
+                audio, 
+                sr, 
+                stretch_factor=stretch_factor, 
+                high_quality=True,
+                transient_mode="smooth",
+                transient_detector="soft",
+                use_time_domain_smoothing=True,
+                use_long_fft_window=False
+            )
+            
+            if stretched.ndim == 2:
+                stretched = stretched.T
+            
+            with io.BytesIO() as out:
+                sf.write(out, stretched, sr, format='WAV', subtype='PCM_16')
+                wav_bytes = out.getvalue()
+        except Exception:
+            pass # Fallback to 1.2x if pedalboard fails
+
     return Response(
-        content=result.audio.wav,
+        content=wav_bytes,
         media_type="audio/wav",
         headers={"Cache-Control": "no-store"},
     )

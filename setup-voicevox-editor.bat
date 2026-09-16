@@ -99,6 +99,10 @@ if errorlevel 1 (
   echo.
 )
 
+echo 管理画面の依存パッケージを導入します...
+cd /d "%ROOT%admin"
+call pnpm install
+
 rem --- ライセンス情報を作ります -------------------------------------------
 rem public/licenses.json は本家リポジトリではダミーが入っており、配布物では CI が
 rem 生成しています。生成しないとヘルプのライセンス情報に「dummy name1」が並びます。
