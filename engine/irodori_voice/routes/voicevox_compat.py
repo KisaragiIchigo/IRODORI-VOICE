@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import io
+from typing import Any
 
 import numpy as np
 import soundfile as sf
@@ -53,6 +54,7 @@ from ..synthesis.pipeline import (
     synthesize_pipeline,
 )
 from ..voicevox.speaker_map import SpeakerMap, speaker_uuid_for
+from ..voicevox.aivis_dict import from_aivis_words, to_aivis_words
 from ..voicevox.user_dict import (
     DEFAULT_PRIORITY,
     shared_user_dict,
@@ -613,6 +615,46 @@ def import_user_dict(
     override: bool = Query(False),
 ) -> None:
     _user_dict.import_words(payload, override=override)
+
+
+@router.get("/user_dict/aivis")
+def export_user_dict_aivis() -> dict[str, dict]:
+    """ユーザー辞書を AivisSpeech の辞書ファイルと同じ形で返す。
+
+    同じ語を AivisSpeech でも使えるようにするための口。互換 API の ``/user_dict`` とは
+    キーの書き方と、いくつかの欄が配列かどうかが違う。
+    """
+
+    return to_aivis_words(_user_dict.list())
+
+
+@router.post("/user_dict/aivis")
+def import_user_dict_aivis(
+    payload: Any = Body(...),
+    override: bool = Query(True),
+) -> dict:
+    """AivisSpeech の辞書ファイルを取り込む。
+
+    受け取れなかった語は理由を添えて返し、残りは取り込む。1 語の不備でファイルごと
+    突き返すと、何十語もある辞書のどこが悪いのか辿れない。
+    """
+
+    try:
+        result = from_aivis_words(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    if result.words:
+        _user_dict.import_words(
+            {word_uuid: word.to_json() for word_uuid, word in result.words.items()},
+            override=override,
+        )
+    return {
+        "imported": len(result.words),
+        "skipped": result.skipped,
+        "total": len(_user_dict.list()),
+        "error": _user_dict.last_error,
+    }
 
 
 @router.get("/update_infos.json")

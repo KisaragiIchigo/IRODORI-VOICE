@@ -1,7 +1,7 @@
 /**
  * VOICEVOX エディタへ IRODORI-VOICE 用の手を入れる。
  *
- * 当てるのは次の 8 つ。いずれも上流の該当箇所が変わっていた場合は何もせずに終了する
+ * 当てるのは次の 9 つ。いずれも上流の該当箇所が変わっていた場合は何もせずに終了する
  * （当てずっぽうに置換して壊さないため）。
  *
  *   1. 長文警告の閾値
@@ -52,6 +52,12 @@
  *      設定を新たに置く。あわせて appId が VOICEVOX 公式と同一だと、インストール情報が
  *      混ざるため分ける。著作権表示にはエディタ本体の権利者を残す。
  *
+ *   9. 読み方＆アクセント辞書をファイルで持ち運べるようにする
+ *      本家の辞書画面には書き出しも取り込みも無く、登録した語はそのエンジンの中だけに
+ *      溜まっていく。AivisSpeech が書き出すファイルと同じ形で読み書きできるようにして、
+ *      両方のソフトで同じ語を使えるようにする。形を合わせる仕事はエンジンが受け持ち、
+ *      エディタ側はファイルの選択と受け渡しだけを行う。
+ *
  * 追加するファイルは tools/editor-patch/ に置いてある。パッチ適用時にコピーし、
  * --revert で削除する。本家にもとから在るファイルの差し替えは overrides で行い、
  * こちらは初回に <ファイル名>.orig を残して --revert で書き戻す。
@@ -87,6 +93,10 @@ const additions = [
   {
     from: join(assetDir, "irodoriTextSplit.ts"),
     to: join(editorSrc, "domain", "irodoriTextSplit.ts"),
+  },
+  {
+    from: join(assetDir, "aivisDictFile.ts"),
+    to: join(editorSrc, "domain", "aivisDictFile.ts"),
   },
   {
     from: join(assetDir, "irodoriTextSplit.spec.ts"),
@@ -433,6 +443,159 @@ const logger = createLogger("useFetchNewUpdateInfos");
   nsisWeb: {`,
   },
   {
+    name: "辞書の書き出しと取り込み（ボタン）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `            <QSpace />
+            <!-- close button -->`,
+    patched: `            <QSpace />
+            <!-- AivisSpeech と同じ形のファイルで辞書を持ち運ぶ。 -->
+            <QBtn
+              flat
+              dense
+              noCaps
+              icon="file_download"
+              label="書き出し"
+              color="display"
+              aria-label="辞書をファイルへ書き出す"
+              :disable="uiLocked"
+              @click="exportDict"
+            />
+            <QBtn
+              flat
+              dense
+              noCaps
+              icon="file_upload"
+              label="取り込み"
+              color="display"
+              aria-label="辞書をファイルから取り込む"
+              :disable="uiLocked"
+              @click="importDict"
+            />
+            <!-- close button -->`,
+  },
+  {
+    name: "辞書の書き出しと取り込み（読み込み）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `import { UnreachableError } from "@/type/utility";`,
+    patched: `import { UnreachableError } from "@/type/utility";
+import {
+  defaultAivisDictFileName,
+  describeImportSummary,
+  fetchAivisDictFile,
+  readAivisDictFile,
+  sendAivisDictFile,
+} from "@/domain/aivisDictFile";
+import { getValueOrThrow } from "@/type/result";`,
+  },
+  {
+    name: "辞書の書き出しと取り込み（処理）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `const closeDialog = () => {`,
+    patched: `/** 辞書のやり取りに使うエンジン。1 つ目のエンジンが辞書の持ち主になる。 */
+const dictEngine = () => store.getters.GET_SORTED_ENGINE_INFOS[0];
+
+const alertDict = (title: string, message: string) => {
+  void store.actions.SHOW_ALERT_DIALOG({ title, message });
+};
+
+const runExportDict = async () => {
+  const engine = dictEngine();
+  if (!engine) {
+    alertDict("辞書を書き出せませんでした", "エンジンに接続できていません。");
+    return;
+  }
+  // 語が無いまま書き出すと、読み込み側が受け取れないファイルができる。
+  if (Object.keys(userDict.value).length === 0) {
+    alertDict(
+      "辞書を書き出せませんでした",
+      "辞書にはまだ単語が 1 つも登録されていません。",
+    );
+    return;
+  }
+
+  const filePath = await window.backend.showSaveFileDialog({
+    title: "辞書を書き出す",
+    name: "辞書ファイル",
+    extensions: ["json"],
+    defaultPath: defaultAivisDictFileName(new Date()),
+  });
+  if (!filePath) return;
+
+  try {
+    const contents = await lockUiWhile(fetchAivisDictFile(engine));
+    await window.backend
+      .writeFile({ filePath, buffer: new TextEncoder().encode(contents) })
+      .then(getValueOrThrow);
+  } catch (e) {
+    alertDict(
+      "辞書を書き出せませんでした",
+      e instanceof Error ? e.message : "書き出しの途中で失敗しました。",
+    );
+    window.backend.logError(e);
+    return;
+  }
+
+  alertDict(
+    "辞書を書き出しました",
+    \`\${filePath} へ保存しました。AivisSpeech でもそのまま読み込めます。\`,
+  );
+};
+
+const runImportDict = async () => {
+  const engine = dictEngine();
+  if (!engine) {
+    alertDict("辞書を取り込めませんでした", "エンジンに接続できていません。");
+    return;
+  }
+
+  const filePath = await window.backend.showOpenFileDialog({
+    title: "辞書を取り込む",
+    name: "辞書ファイル",
+    mimeType: "application/json",
+    extensions: ["json"],
+  });
+  if (!filePath) return;
+
+  let summary;
+  try {
+    const bytes = await window.backend
+      .readFile({ filePath })
+      .then(getValueOrThrow);
+    summary = await lockUiWhile(
+      sendAivisDictFile(engine, readAivisDictFile(bytes)),
+    );
+  } catch (e) {
+    alertDict(
+      "辞書を取り込めませんでした",
+      e instanceof Error ? e.message : "取り込みの途中で失敗しました。",
+    );
+    window.backend.logError(e);
+    return;
+  }
+
+  // 取り込んだ語を一覧へ出し、他のエンジンへも行き渡らせる。編集していた語は
+  // 上書きされている可能性があるため、選択を外してから読み直す。
+  currentWord.value = null;
+  await loadUserDict();
+  alertDict("辞書を取り込みました", describeImportSummary(summary));
+};
+
+// 編集中の語があれば先に片付ける。書き出しでは保存前の変更が抜け落ちないように、
+// 取り込みでは取り込んだ語を保存前の内容で上書きしないようにするため。
+const exportDict = () => {
+  void beforeMove(() => {
+    void runExportDict();
+  });
+};
+const importDict = () => {
+  void beforeMove(() => {
+    void runImportDict();
+  });
+};
+
+const closeDialog = () => {`,
+  },
+  {
     name: "アプリ ID と著作権表示",
     file: join(editorRoot, "build", "electronBuilderConfig.ts"),
     original: `  appId: "jp.hiroshiba.voicevox",
@@ -554,6 +717,7 @@ if (revert) {
   console.log("  ・ｱｸｾﾝﾄ欄の隣のｲﾝﾄﾈｰｼｮﾝ欄・長さ欄のタブが出なくなります");
   console.log("  ・起動時の更新確認が失敗しても、エラーとして記録されなくなります");
   console.log("  ・ヘルプの文面が IRODORI-VOICE のものになります");
+  console.log("  ・辞書画面から辞書の書き出しと取り込みができるようになります");
   console.log("  ・既定テーマが「墨（くらい）」になります");
   console.log("    起動したことがある環境では保存済みの設定が優先されます。");
   console.log("    その場合は設定→テーマから選び直してください。");

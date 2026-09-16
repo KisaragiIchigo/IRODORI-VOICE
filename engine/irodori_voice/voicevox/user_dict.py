@@ -11,6 +11,7 @@ VOICEVOX エディタの辞書画面から追加された語を、実際に Open
 from __future__ import annotations
 
 import json
+import re
 import threading
 import uuid as uuid_module
 from dataclasses import asdict, dataclass, field
@@ -19,7 +20,15 @@ from typing import Any, Literal
 
 from ..paths import user_data_root
 
-WordType = Literal["PROPER_NOUN", "COMMON_NOUN", "VERB", "ADJECTIVE", "SUFFIX"]
+WordType = Literal[
+    "PROPER_NOUN",
+    "ORGANIZATION_NAME",
+    "PERSON_NAME",
+    "COMMON_NOUN",
+    "VERB",
+    "ADJECTIVE",
+    "SUFFIX",
+]
 
 MIN_PRIORITY = 0
 MAX_PRIORITY = 10
@@ -29,26 +38,49 @@ DEFAULT_PRIORITY = 5
 _COST_CANDIDATES = [15008, 13728, 12448, 11168, 9888, 8608, 7328, 6048, 4768, 3488, -988]
 
 # 品詞ごとの文脈 ID と品詞細分類。naist-jdic の定義に対応する。
+#
+# 文脈 ID は naist-jdic の left-id で、辞書が持たない値を渡すと mecab_dict_index が
+# その行だけを捨てる。捨てても他の語のビルドは通るため、エラーにはならず「その語
+# だけ読みが変わらない」という形で出る。同梱の pyopenjtalk 0.4.1-post9 が抱える
+# naist-jdic では 1376 が上限で、VOICEVOX ENGINE が SUFFIX へ使う 1417 は範囲外。
+# 接尾は AivisSpeech と同じ 1358 を使う。辞書ファイルを相互に持ち運ぶ相手でもある。
 _WORD_TYPE_TABLE: dict[str, tuple[int, str, str, str, str]] = {
     "PROPER_NOUN": (1348, "名詞", "固有名詞", "一般", "*"),
+    "ORGANIZATION_NAME": (1352, "名詞", "固有名詞", "組織", "*"),
+    "PERSON_NAME": (1349, "名詞", "固有名詞", "人名", "一般"),
     "COMMON_NOUN": (1345, "名詞", "一般", "*", "*"),
     "VERB": (642, "動詞", "自立", "*", "*"),
     "ADJECTIVE": (20, "形容詞", "自立", "*", "*"),
-    "SUFFIX": (1417, "名詞", "接尾", "一般", "*"),
+    "SUFFIX": (1358, "名詞", "接尾", "一般", "*"),
 }
 
-_SMALL_KANA = "ァィゥェォャュョヮ"
+# naist-jdic が持つ left-id の上限。これを超える文脈 ID の語は辞書へ入らない。
+MAX_CONTEXT_ID = 1376
+
+# モーラの区切り。長い並びから順に当てる。小書きのカナを一律で直前へ吸収すると、
+# 「ビィ」のように 2 モーラで数える並びまで 1 モーラになり、アクセント位置が
+# 1 つずれる。どの並びを 1 モーラとするかは VOICEVOX ENGINE に合わせてある。
+_MORA_PATTERN = re.compile(
+    "|".join(
+        [
+            "[イ][ェ]",
+            "[ヴ][ャュョ]",
+            "[トド][ゥ]",
+            "[テデ][ィャュョ]",
+            "[デ][ェ]",
+            "[クグ][ヮ]",
+            "[キシチニヒミリギジビピ][ェャュョ]",
+            "[ツフヴ][ァィェォ]",
+            "[ァ-ヴー]",
+        ]
+    )
+)
 
 
 def count_moras(pronunciation: str) -> int:
-    """カタカナの発音からモーラ数を数える。拗音は直前と 1 つにまとめる。"""
+    """カタカナの発音からモーラ数を数える。"""
 
-    total = 0
-    for index, char in enumerate(pronunciation):
-        if char in _SMALL_KANA and index > 0:
-            continue
-        total += 1
-    return max(1, total)
+    return max(1, len(_MORA_PATTERN.findall(pronunciation)))
 
 
 @dataclass
@@ -128,6 +160,35 @@ class UserDictWord:
                 self.accent_associative_rule,
             ]
         )
+
+
+def word_type_of(word: UserDictWord) -> WordType:
+    """登録済みの語がどの品詞として作られたかを言い当てる。
+
+    語そのものには品詞の種別を持たせていない。文脈 ID と品詞細分類の組が
+    種別ごとに固有なので、そこから引き直す。どれにも当てはまらない語
+    （他のソフトが書いた辞書を取り込んだ場合など）は固有名詞として扱う。
+    """
+
+    signature = (
+        word.part_of_speech,
+        word.part_of_speech_detail_1,
+        word.part_of_speech_detail_2,
+        word.part_of_speech_detail_3,
+    )
+    for word_type, (context_id, *details) in _WORD_TYPE_TABLE.items():
+        if word.context_id == context_id and tuple(details) == signature:
+            return word_type  # type: ignore[return-value]
+    for word_type, (_, *details) in _WORD_TYPE_TABLE.items():
+        if tuple(details) == signature:
+            return word_type  # type: ignore[return-value]
+    return "PROPER_NOUN"
+
+
+def is_valid_context_id(context_id: int) -> bool:
+    """その文脈 ID で辞書をビルドできるかを返す。"""
+
+    return 0 <= context_id <= MAX_CONTEXT_ID
 
 
 @dataclass
@@ -299,11 +360,14 @@ class UserDictionary:
             current = self.words.get(word_uuid)
             if current is None:
                 raise KeyError(f"辞書に単語 {word_uuid} がありません。")
+            # 品詞を指定されなかったときに固有名詞へ倒すと、取り込んだ辞書の
+            # 組織名や人名がエディタで直すたびに固有名詞へ化ける。元の語から
+            # 引き直して保つ。
             self.words[word_uuid] = UserDictWord.build(
                 surface=surface,
                 pronunciation=pronunciation,
                 accent_type=accent_type,
-                word_type=word_type or "PROPER_NOUN",
+                word_type=word_type or word_type_of(current),
                 priority=priority if priority is not None else current.priority,
             )
             self._save()
