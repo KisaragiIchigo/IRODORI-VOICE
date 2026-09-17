@@ -1,41 +1,69 @@
 @echo off
-rem Switch the console to UTF-8, then re-read this file. See the note under :body.
+rem Switch the console to UTF-8, then re-read this file.
 if "%~1"=="--utf8" goto :body
 chcp 65001 > nul
-cmd /c "%~f0" --utf8
+cmd /c ""%~f0" --utf8 %*"
 exit /b %errorlevel%
 
 :body
-setlocal
+shift
+setlocal enabledelayedexpansion
 
-rem 上の 5 行について。ファイルの途中で chcp すると cmd の読み取り位置がずれ、
-rem ここから下の日本語の行が途中で切れて、その後半が別のコマンドとして実行される。
-rem そのため、先にコンソールを UTF-8 へ切り替えてから読み直させている。
+set AUTO_MODE=0
+if "%~1"=="--auto" set AUTO_MODE=1
+if "%~2"=="--auto" set AUTO_MODE=1
 
 rem VOICEVOX エディタを取得して IRODORI-VOICE 用に設定します。
 rem 取得するのは VOICEVOX 公式リポジトリ（LGPL-3.0 / 一部 MIT）です。
-rem 内容を確認したうえで実行してください。
 
-set "ROOT=%~dp0"
-set "DEST=%ROOT%editor-voicevox"
+set ROOT=%~dp0
+set DEST=%ROOT%editor-voicevox
 
 where git >nul 2>&1
 if errorlevel 1 (
-  echo git が見つかりません。git をインストールしてから実行してください。
+  echo [エラー] git が見つかりません。
+  echo VOICEVOX エディタの取得に git が必要です。
+  echo 下記から git をインストールしてください。
+  echo.
+  echo Git 公式ダウンロード: https://git-scm.com/download/win
+  echo.
+  where winget >nul 2>&1
+  if not errorlevel 1 (
+    echo winget コマンドで自動インストールを試みますか？
+    set /p INSTALL_GIT=インストールする場合は Y を押してください [Y/N]: 
+    if /i "!INSTALL_GIT!"=="Y" (
+      echo Git をインストール中...
+      winget install --id Git.Git -e --source winget
+      echo インストールが完了したら、このウィンドウを閉じて再度バッチを実行してください。
+    )
+  )
   pause
   exit /b 1
 )
 
 where node >nul 2>&1
 if errorlevel 1 (
-  echo Node.js が見つかりません。Node.js 24 系をインストールしてから実行してください。
+  echo [エラー] Node.js が見つかりません。
+  echo VOICEVOX エディタの実行に Node.js 24 系が必要です。
+  echo 下記から Node.js をインストールしてください。
+  echo.
+  echo Node.js 公式ダウンロード: https://nodejs.org/
+  echo.
+  where winget >nul 2>&1
+  if not errorlevel 1 (
+    echo winget コマンドで自動インストールを試みますか？
+    set /p INSTALL_NODE=インストールする場合は Y を押してください [Y/N]: 
+    if /i "!INSTALL_NODE!"=="Y" (
+      echo Node.js をインストール中...
+      winget install --id OpenJS.NodeJS.LTS -e --source winget
+      echo インストールが完了したら、このウィンドウを閉じて再度バッチを実行してください。
+    )
+  )
   pause
   exit /b 1
 )
 
 rem --- pnpm を用意します ---------------------------------------------------
-rem VOICEVOX は pnpm を使います。さらに postinstall が pnpm を PATH から呼ぶため、
-rem corepack 経由ではなく PATH に通った状態が必要です。
 where pnpm >nul 2>&1
 if errorlevel 1 (
   echo pnpm を用意します...
@@ -80,8 +108,6 @@ if errorlevel 1 (
 )
 
 echo アプリ名を設定します...
-rem vite が package.json の name と VITE_APP_NAME の一致を検証するため、
-rem name を irodori-voice へ変更します（変更するのはこの 1 行のみ）。
 call node "%ROOT%tools\brand-editor.mjs" "%DEST%"
 call node "%ROOT%tools\patch-editor.mjs"
 if errorlevel 1 (
@@ -99,7 +125,6 @@ if errorlevel 1 (
   echo 依存の導入でエラーが出ました。
   echo 開発用のスペルチェッカー（typos）の展開だけが失敗している場合は、
   echo エディタの起動に影響しないためそのまま進めて構いません。
-  echo フォルダのパスに空白が含まれると、この展開が失敗することがあります。
   echo.
 )
 
@@ -108,8 +133,6 @@ cd /d "%ROOT%admin"
 call pnpm install
 
 rem --- ライセンス情報を作ります -------------------------------------------
-rem public/licenses.json は本家リポジトリではダミーが入っており、配布物では CI が
-rem 生成しています。生成しないとヘルプのライセンス情報に「dummy name1」が並びます。
 echo ライセンス情報を生成します...
 cd /d "%DEST%"
 call pnpm run license:generate -o public/licenses.json
@@ -118,12 +141,15 @@ if errorlevel 1 (
 )
 
 echo.
-echo セットアップが完了しました。
+echo ============================================================
+echo エディタのセットアップが完了しました！
+echo ============================================================
 echo.
-echo 起動手順:
-echo   1. 02_start-engine.bat でエンジンを起動する（ウィンドウは閉じない）
-echo   2. 03_start-voicevox-editor.bat を実行する
-echo.
-pause
+
+if "!AUTO_MODE!"=="0" (
+  echo 「000-Irodori-Voice-STARTER.bat」を実行すればエディタとエンジンが起動します。
+  echo.
+  pause
+)
 
 endlocal
