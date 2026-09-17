@@ -116,8 +116,8 @@ echo.
 echo セットアップが完了しました。
 echo.
 echo 起動手順:
-echo   1. start-engine.bat でエンジンを起動する（ウィンドウは閉じない）
-echo   2. start-voicevox-editor.bat を実行する
+echo   1. 02_start-engine.bat でエンジンを起動する（ウィンドウは閉じない）
+echo   2. 03_start-voicevox-editor.bat を実行する
 echo.
 pause
 

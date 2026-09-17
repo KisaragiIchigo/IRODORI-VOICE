@@ -21,7 +21,7 @@ set "PORT=50121"
 
 if not exist "%DEST%\package.json" (
   echo VOICEVOX エディタが用意されていません。
-  echo setup-voicevox-editor.bat を先に実行してください。
+  echo 01_setup-voicevox-editor.bat を先に実行してください。
   pause
   exit /b 1
 )
@@ -48,7 +48,7 @@ if not defined ENGINE_FILE if exist "%CAND_EXE%" set "ENGINE_FILE=%CAND_EXE%"
 
 if not defined ENGINE_FILE (
   echo エンジンを起動する方法が見つかりません。
-  echo Irodori-TTS/.venv を用意するか、build-engine.bat で実行ファイルを作ってください。
+  echo Irodori-TTS/.venv を用意するか、04_build-engine.bat で実行ファイルを作ってください。
   pause
   exit /b 1
 )
@@ -70,7 +70,7 @@ rem そのとき %PORT% を見ている外部ツールは古い方へ繋がる�
 netstat -ano -p tcp | findstr /c:":%PORT% " | findstr /c:"LISTENING" > nul 2>&1
 if not errorlevel 1 (
   echo.
-  echo 注意: ポート %PORT% は既に使われています。start-engine.bat で起動したエンジンが
+  echo 注意: ポート %PORT% は既に使われています。02_start-engine.bat で起動したエンジンが
   echo       残っている場合は、そちらを閉じてからやり直してください。このまま進むと
   echo       エディタは別のポートへもう 1 つエンジンを起動します。
   echo.

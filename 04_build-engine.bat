@@ -50,7 +50,7 @@ echo   出力: engine\dist\irodori-voice-engine\irodori-voice-engine.exe
 echo.
 echo エディタから自動起動させる場合は、voicevox-editor.env.template の
 echo executionEnabled を true にし、executionFilePath に上記の exe への
-echo パスを指定してから setup-voicevox-editor.bat を再実行してください。
+echo パスを指定してから 01_setup-voicevox-editor.bat を再実行してください。
 echo.
 pause
 

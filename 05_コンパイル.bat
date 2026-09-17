@@ -42,20 +42,20 @@ echo.
 
 rem --- 前提を確認します ---------------------------------------------------
 if not exist "%EDITOR%\package.json" (
-  echo エディタが見つかりません。先に setup-voicevox-editor.bat を実行してください。
+  echo エディタが見つかりません。先に 01_setup-voicevox-editor.bat を実行してください。
   pause
   exit /b 1
 )
 
 if not exist "%EDITOR%\node_modules" (
-  echo エディタの依存が導入されていません。先に setup-voicevox-editor.bat を実行してください。
+  echo エディタの依存が導入されていません。先に 01_setup-voicevox-editor.bat を実行してください。
   pause
   exit /b 1
 )
 
 where pnpm >nul 2>&1
 if errorlevel 1 (
-  echo pnpm が見つかりません。先に setup-voicevox-editor.bat を実行してください。
+  echo pnpm が見つかりません。先に 01_setup-voicevox-editor.bat を実行してください。
   pause
   exit /b 1
 )
