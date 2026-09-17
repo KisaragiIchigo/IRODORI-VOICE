@@ -37,6 +37,9 @@ from ..base import (
     VoiceStyle,
 )
 from ...voicevox.user_dict import shared_user_dict
+from .expression_caption import build_expression_caption
+from .expression_text import append_expression_pause
+from .pronunciation import apply_pronunciation
 from .reading_overrides import apply_reading_overrides
 from .symbol_filter import drop_unreadable_symbols
 from .reference_cache import ReferenceLatentCache
@@ -278,16 +281,17 @@ class IrodoriBackend:
         # スタイル強度はキャプション条件の効き具合として表現する。
         caption_scale = float(style.cfg_scale_caption) * max(0.0, float(params.style_strength))
 
-        caption = params.caption if params.caption is not None else style.caption
-        if caption is not None and caption.strip() == "":
-            caption = None
-
         # 読みの指定はモデルへ渡せないため、辞書の登録語は表記の側で当てる。
         text = apply_reading_overrides(params.text, shared_user_dict().reading_overrides())
         # 登録語を当てたあとに掛ける。辞書へ入れた記号は既に読みへ変わっているため、
         # ここで落ちるのは登録されていない記号だけになる。
         text = drop_unreadable_symbols(text)
         text = _apply_style_emoji(text, style.emoji)
+        text = apply_pronunciation(text)
+        text = append_expression_pause(text)
+        caption = build_expression_caption(
+            text, style_caption=style.caption, explicit_caption=params.caption,
+        )
 
         cfg_scale_text = float(style.cfg_scale_text)
         if preset.mode == "caption":

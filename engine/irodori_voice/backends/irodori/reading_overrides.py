@@ -25,11 +25,7 @@ import re
 import unicodedata
 
 from .word_boundaries import token_boundaries
-
-_KANA_TO_HIRA = str.maketrans(
-    "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲンガギグゲゴザジズゼゾダヂヅデドバビブベボパピプペポァィゥェォャュョッヴ",
-    "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわをんがぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽぁぃぅぇぉゃゅょっゔ"
-)
+from .pronunciation import to_hiragana
 
 # 区切り記号なしで連なって 1 語を成す文字種。形態素解析が使えないときの簡易判定で、
 # 表記の端がこの文字種なら、同じ文字種が隣にある一致を語の途中とみなす。漢字と
@@ -79,7 +75,7 @@ def _prepare(overrides: list[tuple[str, str]]) -> list[tuple[re.Pattern[str], st
         # VOICEVOXエディタは辞書の「読み」をカタカナで強制するが、
         # Irodori-TTSにカタカナをそのまま渡すと外来語のような不自然なイントネーションになる。
         # そこで、置換前にカタカナをひらがなへ変換する。
-        pronunciation_hira = pronunciation.translate(_KANA_TO_HIRA)
+        pronunciation_hira = to_hiragana(pronunciation)
         pattern = re.compile(re.escape(surface_nfkc), flags=re.IGNORECASE)
         prepared.append((pattern, surface_nfkc, pronunciation_hira))
 
