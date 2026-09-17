@@ -111,6 +111,7 @@ rem --- ライセンス情報を作ります -----------------------------------
 rem public/licenses.json は本家リポジトリではダミーが入っており、配布物では CI が
 rem 生成しています。生成しないとヘルプのライセンス情報に「dummy name1」が並びます。
 echo ライセンス情報を生成します...
+cd /d "%DEST%"
 call pnpm run license:generate -o public/licenses.json
 if errorlevel 1 (
   echo ライセンス情報の生成に失敗しました。ヘルプの表示以外に影響はありません。
