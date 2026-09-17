@@ -43,6 +43,7 @@ class VoiceStyleDef:
     cfg_scale_text: float = 3.0
     cfg_scale_caption: float = 3.0
     cfg_scale_speaker: float = 5.0
+    num_steps: int | None = None
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)

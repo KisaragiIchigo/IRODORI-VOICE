@@ -1,0 +1,127 @@
+"""シード話者の表現設定と生成回数の優先順位を検証する。"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest.mock import Mock, patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+
+def setUpModule():
+    global data_dir, environment, paths, seed_bake, VoicePresetStore, VoicePreset, VoiceStyleDef
+    global IrodoriBackend, SynthesisParams, EngineSettings, apply_seed_expression_profile
+    data_dir = tempfile.TemporaryDirectory(prefix="irodori-seed-profile-")
+    environment = patch.dict(os.environ, {"IRODORI_VOICE_DATA_DIR": data_dir.name})
+    environment.start()
+    from irodori_voice import paths
+    from irodori_voice.voices import seed_bake
+    from irodori_voice.voices.store import VoicePresetStore, VoicePreset, VoiceStyleDef
+    from irodori_voice.voices.seed_profile import apply_seed_expression_profile
+    from irodori_voice.backends.irodori.backend import IrodoriBackend
+    from irodori_voice.backends.base import SynthesisParams
+    from irodori_voice.settings import EngineSettings
+    paths.user_data_root.cache_clear()
+
+
+def tearDownModule():
+    paths.user_data_root.cache_clear()
+    environment.stop()
+    data_dir.cleanup()
+
+
+class SeedProfileTests(unittest.TestCase):
+    def request(self, style, *, steps=None, global_steps=8, reference=True):
+        instance = object.__new__(IrodoriBackend)
+        instance._settings = EngineSettings(num_steps=global_steps)
+        instance._reference_cache = Mock()
+        instance._reference_cache.resolve.return_value = ["参照.pt"]
+        preset = VoicePreset(
+            preset_id="test", name="確認用", description="", color_key="shu",
+            mode="reference" if reference else "caption", styles=[style],
+            reference_files=["参照.wav"] if reference else [], voice_seed=114514,
+        )
+        return instance._build_request(
+            params=SynthesisParams(text="😭こんにちは。", voice_id="irodori:test", steps=steps),
+            preset=preset, style=style, runtime=None,
+        )
+
+    def test_profile_reaches_request_without_replacing_reference_or_seed(self):
+        style = apply_seed_expression_profile(VoiceStyleDef(style_id="normal", name="通常"))
+        request = self.request(style)
+        self.assertEqual((request.num_steps, request.cfg_scale_caption, request.cfg_scale_speaker), (40, 5.0, 2.0))
+        self.assertEqual(request.cfg_scale_text, 3.0)
+        self.assertEqual(request.ref_latents, ["参照.pt"])
+        self.assertEqual(request.seed, 114514)
+        self.assertFalse(request.no_ref)
+        self.assertIn("嗚咽", request.caption)
+
+    def test_explicit_steps_override_style_and_style_overrides_engine(self):
+        style = apply_seed_expression_profile(VoiceStyleDef(style_id="normal", name="通常"))
+        self.assertEqual(self.request(style, steps=12).num_steps, 12)
+        self.assertEqual(self.request(style, global_steps=64).num_steps, 40)
+        old_style = VoiceStyleDef.from_json({"style_id": "normal", "name": "通常"})
+        self.assertEqual(self.request(old_style).num_steps, 8)
+        self.assertIsNone(self.request(old_style, global_steps=None).num_steps)
+
+    def test_reference_free_preview_keeps_engine_defaults(self):
+        style = VoiceStyleDef(style_id="normal", name="通常")
+        request = self.request(style, reference=False)
+        self.assertEqual(request.num_steps, 8)
+        self.assertEqual(request.cfg_scale_caption, 3.0)
+        self.assertEqual(request.cfg_scale_text, 5.0)
+        self.assertTrue(request.no_ref)
+
+    def test_borrowed_voice_keeps_existing_settings(self):
+        style = VoiceStyleDef(style_id="normal", name="通常", cfg_scale_speaker=3.0)
+        request = self.request(style)
+        self.assertEqual((request.num_steps, request.cfg_scale_caption, request.cfg_scale_speaker), (8, 3.0, 3.0))
+
+    def test_profile_preserves_other_style_values(self):
+        style = VoiceStyleDef(style_id="joy", name="喜び", caption="明るい声。", emoji="😆", duration_scale=1.2, cfg_scale_text=4.0)
+        updated = apply_seed_expression_profile(style)
+        for field in ("style_id", "name", "caption", "emoji", "duration_scale", "cfg_scale_text"):
+            self.assertEqual(getattr(updated, field), getattr(style, field))
+        self.assertIsNone(style.num_steps)
+
+    def test_new_seed_profile_survives_save_reload_and_duplicate(self):
+        store = VoicePresetStore([])
+        with patch.object(seed_bake, "bake_seed_reference", return_value=["元の参照.wav"]):
+            voice = seed_bake.create_voice_from_seed(irodori=Mock(), store=store, name="試験", seed=0)
+        reloaded = VoicePresetStore([]).get(voice.preset_id)
+        duplicate = store.duplicate(voice.preset_id)
+        for candidate in (voice, reloaded, duplicate):
+            request = self.request(candidate.styles[0])
+            self.assertEqual((request.num_steps, request.cfg_scale_caption, request.cfg_scale_speaker), (40, 5.0, 2.0))
+            self.assertEqual(candidate.reference_files, ["元の参照.wav"])
+            self.assertEqual(candidate.voice_seed, 0)
+
+    def test_existing_unfixed_voice_gets_profile_when_baked(self):
+        store = VoicePresetStore([])
+        voice = store.create(name="未固定", description="", color_key="shu", mode="caption", voice_seed=42,
+                             styles=[VoiceStyleDef(style_id="normal", name="通常")])
+        with patch.object(seed_bake, "bake_seed_reference", return_value=["固定.wav"]):
+            result = seed_bake.bake_existing_voice(irodori=Mock(), store=store, preset_id=voice.preset_id)
+        self.assertEqual(result.mode, "reference")
+        self.assertEqual(result.voice_seed, 42)
+        self.assertEqual(result.styles[0].num_steps, 40)
+        self.assertEqual(result.styles[0].cfg_scale_caption, 5.0)
+        self.assertEqual(result.styles[0].cfg_scale_speaker, 2.0)
+
+    def test_api_accepts_and_validates_style_steps(self):
+        from pydantic import ValidationError
+        from irodori_voice.schemas import VoiceUpdateRequest
+        for value in (None, 1, 40, 128):
+            payload = VoiceUpdateRequest(styles=[{"style_id": "normal", "name": "通常", "num_steps": value}])
+            self.assertEqual(payload.model_dump(exclude_unset=True)["styles"][0]["num_steps"], value)
+        for value in (0, -1, 129):
+            with self.assertRaises(ValidationError):
+                VoiceUpdateRequest(styles=[{"style_id": "normal", "name": "通常", "num_steps": value}])
+
+
+if __name__ == "__main__":
+    unittest.main()

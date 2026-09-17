@@ -124,6 +124,7 @@ class VoiceStyleIn(BaseModel):
     cfg_scale_text: float = Field(3.0, ge=0.0, le=15.0)
     cfg_scale_caption: float = Field(3.0, ge=0.0, le=15.0)
     cfg_scale_speaker: float = Field(5.0, ge=0.0, le=15.0)
+    num_steps: int | None = Field(None, ge=1, le=128)
 
     @field_validator("emoji")
     @classmethod

@@ -299,6 +299,7 @@ class IrodoriBackend:
             # テキスト条件の拘束力（cfg_scale_text）を強制的に底上げして、辞書への食いつきを改善する。
             cfg_scale_text = max(cfg_scale_text, 5.0)
 
+        num_steps = style.num_steps if style.num_steps is not None else self._settings.num_steps
         request = SamplingRequest(
             text=text,
             caption=caption,
@@ -310,7 +311,7 @@ class IrodoriBackend:
             # プリセットにシードが設定されていれば、要求の指定より優先する。
             # 「この声」と決めて保存した話者は、常にその声で鳴らなければならない。
             seed=preset.voice_seed if preset.voice_seed is not None else params.seed,
-            num_steps=params.steps if params.steps is not None else self._settings.num_steps,
+            num_steps=params.steps if params.steps is not None else num_steps,
         )
 
         if preset.mode == "caption":

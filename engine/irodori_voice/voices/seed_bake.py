@@ -31,7 +31,8 @@ from .. import audio as audio_utils
 from ..backends.base import BackendError, SynthesisParams
 from ..backends.irodori.backend import IrodoriBackend, voice_id_for
 from ..synthesis.steps.resolve_seed import resolve_voice_seed
-from .reference import REFERENCE_SPEAKER_CFG, SEED_REFERENCE_TEXT, save_reference_wavs
+from .reference import SEED_REFERENCE_TEXT, save_reference_wavs
+from .seed_profile import apply_seed_expression_profile
 from .store import VoicePreset, VoicePresetStore, VoiceStyleDef
 
 
@@ -116,12 +117,11 @@ def create_voice_from_seed(
         color_key=color_key,
         mode="reference",
         styles=[
-            VoiceStyleDef(
+            apply_seed_expression_profile(VoiceStyleDef(
                 style_id="normal",
                 name="ノーマル",
                 caption=caption,
-                cfg_scale_speaker=REFERENCE_SPEAKER_CFG,
-            )
+            ))
         ],
         reference_files=reference_files,
         voice_seed=seed,
@@ -165,11 +165,7 @@ def bake_existing_voice(
         reference_text=reference_text,
     )
 
-    styles = []
-    for definition in preset.styles:
-        raw = definition.to_json()
-        raw["cfg_scale_speaker"] = REFERENCE_SPEAKER_CFG
-        styles.append(raw)
+    styles = [apply_seed_expression_profile(definition).to_json() for definition in preset.styles]
 
     return store.update(
         preset_id,
