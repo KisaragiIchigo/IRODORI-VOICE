@@ -45,3 +45,4 @@ release
 __pycache__
 .venv
 .gemini/
+engine/irodori_voice/synthesis/steps/speed/build_speed_plan.py

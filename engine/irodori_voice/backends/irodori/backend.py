@@ -38,6 +38,7 @@ from ..base import (
 )
 from ...voicevox.user_dict import shared_user_dict
 from .reading_overrides import apply_reading_overrides
+from .symbol_filter import drop_unreadable_symbols
 from .reference_cache import ReferenceLatentCache
 from .runtime_pool import RuntimePool
 
@@ -283,6 +284,9 @@ class IrodoriBackend:
 
         # 読みの指定はモデルへ渡せないため、辞書の登録語は表記の側で当てる。
         text = apply_reading_overrides(params.text, shared_user_dict().reading_overrides())
+        # 登録語を当てたあとに掛ける。辞書へ入れた記号は既に読みへ変わっているため、
+        # ここで落ちるのは登録されていない記号だけになる。
+        text = drop_unreadable_symbols(text)
         text = _apply_style_emoji(text, style.emoji)
 
         cfg_scale_text = float(style.cfg_scale_text)
