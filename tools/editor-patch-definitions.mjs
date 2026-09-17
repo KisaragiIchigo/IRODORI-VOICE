@@ -1,7 +1,7 @@
 /**
  * エディタへ当てる内容の宣言。
  *
- * 当てるのは次の 9 つ。いずれも上流の該当箇所が変わっていた場合は何もせずに終了する
+ * 当てるのは次の 11 個。いずれも上流の該当箇所が変わっていた場合は何もせずに終了する
  * （当てずっぽうに置換して壊さないため）。
  *
  *   1. 長文警告の閾値
@@ -58,6 +58,17 @@
  *      両方のソフトで同じ語を使えるようにする。形を合わせる仕事はエンジンが受け持ち、
  *      エディタ側はファイルの選択と受け渡しだけを行う。
  *
+ *  10. フレーズ分割辞書をエディタから登録できるようにする
+ *      長い複合語をひと塊のまま渡すとモデルが読みを外すため、どこで区切るかを表記の
+ *      側で伝える辞書をエンジンが持っている。これまで登録の口は API だけで画面が無く、
+ *      利用者はファイルを手で開くしかなかった。読み方＆アクセント辞書と同じ形の画面を
+ *      足し、メニューへ入口を置く。辞書そのものの扱いはエンジンが持ち、エディタ側は
+ *      一覧の表示と受け渡しだけを行う。
+ *
+ *  11. 合成へ現在の本文を渡す
+ *      本文編集時に残る古い kana ではなく、送信時にメモ・ルビを処理した本文を使う。
+ *      IRODORI-VOICE のエンジン ID に限定し、他のエンジンのかな表記は変更しない。
+ *
  * 追加するファイルは tools/editor-patch/ に置いてある。パッチ適用時にコピーし、
  * --revert で削除する。本家にもとから在るファイルの差し替えは overrides で行い、
  * こちらは初回に <ファイル名>.orig を残して --revert で書き戻す。
@@ -79,6 +90,10 @@ export const assetDir = join(toolsDir, "editor-patch");
 /** 追加するファイル。tools/editor-patch/ からエディタへコピーする。 */
 export const additions = [
   {
+    from: join(assetDir, "irodoriExpression.spec.ts"),
+    to: join(editorRoot, "tests", "unit", "store", "irodoriExpression.spec.ts"),
+  },
+  {
     from: join(assetDir, "AdminDialog.vue"),
     to: join(editorSrc, "components", "Dialog", "AdminDialog.vue"),
   },
@@ -93,6 +108,14 @@ export const additions = [
   {
     from: join(assetDir, "aivisDictFile.ts"),
     to: join(editorSrc, "domain", "aivisDictFile.ts"),
+  },
+  {
+    from: join(assetDir, "WordSplitManageDialog.vue"),
+    to: join(editorSrc, "components", "Dialog", "WordSplitManageDialog.vue"),
+  },
+  {
+    from: join(assetDir, "wordSplits.ts"),
+    to: join(editorSrc, "domain", "wordSplits.ts"),
   },
   {
     from: join(assetDir, "irodoriTextSplit.spec.ts"),
@@ -125,6 +148,29 @@ export const overrides = [
 
 /** 既存ファイルへの置換。 */
 export const patches = [
+  {
+    name: "合成時に現在の本文の表現指定を渡すための読み抽出",
+    file: join(editorSrc, "store", "audioGenerate.ts"),
+    original: 'import { generateTempUniqueId } from "./utility";',
+    patched: 'import { extractYomiText, generateTempUniqueId } from "./utility";',
+  },
+  {
+    name: "IRODORI-VOICE の合成へ現在の本文を渡す",
+    file: join(editorSrc, "store", "audioGenerate.ts"),
+    original: `  const audioQuery = audioItem.query;
+  if (audioQuery != undefined) {
+    audioQuery.outputSamplingRate =`,
+    patched: `  const audioQuery = audioItem.query;
+  if (audioQuery != undefined) {
+    // 本文の編集では query.kana が更新されないため、送信時に表現指定を同期する。
+    if (audioItem.voice.engineId === "0b2a5f31-9c4d-4f6a-8e7b-3d1c5a9f2e40") {
+      audioQuery.kana = extractYomiText(audioItem.text, {
+        enableMemoNotation: state.enableMemoNotation,
+        enableRubyNotation: state.enableRubyNotation,
+      });
+    }
+    audioQuery.outputSamplingRate =`,
+  },
   {
     name: "長文警告の閾値",
     file: join(editorSrc, "components", "Talk", "AudioCell.vue"),
@@ -598,5 +644,95 @@ const closeDialog = () => {`,
   copyright: "Hiroshiba Kazuyuki",`,
     patched: `  appId: "jp.irodori-voice.app",
   copyright: "Hiroshiba Kazuyuki (VOICEVOX Editor) / IRODORI-VOICE",`,
+  },
+  {
+    name: "フレーズ分割辞書ダイアログの読み込み",
+    file: join(editorSrc, "components", "Dialog", "AllDialog.vue"),
+    original: `import DictionaryManageDialog from "@/components/Dialog/DictionaryManageDialog/DictionaryManageDialog.vue";`,
+    patched: `import DictionaryManageDialog from "@/components/Dialog/DictionaryManageDialog/DictionaryManageDialog.vue";
+import WordSplitManageDialog from "@/components/Dialog/WordSplitManageDialog.vue";`,
+  },
+  {
+    name: "フレーズ分割辞書ダイアログの組み込み",
+    file: join(editorSrc, "components", "Dialog", "AllDialog.vue"),
+    original: `  <DictionaryManageDialog
+    v-model:dialogOpened="isDictionaryManageDialogOpenComputed"
+  />
+  <EngineManageDialog`,
+    patched: `  <DictionaryManageDialog
+    v-model:dialogOpened="isDictionaryManageDialogOpenComputed"
+  />
+  <WordSplitManageDialog
+    v-model:dialogOpened="isWordSplitManageDialogOpenComputed"
+  />
+  <EngineManageDialog`,
+  },
+  {
+    name: "フレーズ分割辞書ダイアログの開閉状態",
+    file: join(editorSrc, "components", "Dialog", "AllDialog.vue"),
+    original: `const isAcceptRetrieveTelemetryDialogOpenComputed = computed({`,
+    patched: `const isWordSplitManageDialogOpenComputed = computed({
+  get: () => store.state.isWordSplitManageDialogOpen,
+  set: (val) =>
+    store.actions.SET_DIALOG_OPEN({
+      isWordSplitManageDialogOpen: val,
+    }),
+});
+
+const isAcceptRetrieveTelemetryDialogOpenComputed = computed({`,
+  },
+  {
+    name: "設定メニューへフレーズ分割辞書を追加",
+    file: join(editorSrc, "components", "Menu", "MenuBar", "useCommonMenuBarData.ts"),
+    original: `        {
+          type: "button",
+          label: "読み方＆アクセント辞書",
+          onClick() {
+            void store.actions.SET_DIALOG_OPEN({
+              isDictionaryManageDialogOpen: true,
+            });
+          },
+          disableWhenUiLocked: true,
+        },
+`,
+    patched: `        {
+          type: "button",
+          label: "読み方＆アクセント辞書",
+          onClick() {
+            void store.actions.SET_DIALOG_OPEN({
+              isDictionaryManageDialogOpen: true,
+            });
+          },
+          disableWhenUiLocked: true,
+        },
+        {
+          type: "button",
+          label: "フレーズ分割辞書",
+          onClick() {
+            void store.actions.SET_DIALOG_OPEN({
+              isWordSplitManageDialogOpen: true,
+            });
+          },
+          disableWhenUiLocked: true,
+        },
+`,
+  },
+  {
+    name: "フレーズ分割辞書ダイアログの状態の型",
+    file: join(editorSrc, "store", "type.ts"),
+    original: `  isDictionaryManageDialogOpen: boolean;
+`,
+    patched: `  isDictionaryManageDialogOpen: boolean;
+  isWordSplitManageDialogOpen: boolean;
+`,
+  },
+  {
+    name: "フレーズ分割辞書ダイアログの状態の初期値",
+    file: join(editorSrc, "store", "ui.ts"),
+    original: `  isDictionaryManageDialogOpen: false,
+`,
+    patched: `  isDictionaryManageDialogOpen: false,
+  isWordSplitManageDialogOpen: false,
+`,
   },
 ];

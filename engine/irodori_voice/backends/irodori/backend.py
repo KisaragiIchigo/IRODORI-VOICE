@@ -76,19 +76,19 @@ _EMOJI_RUN = "|".join(
     sorted((re.escape(mark) for mark in ALLOWED_ANNOTATION_EMOJIS), key=len, reverse=True)
 )
 _EMOJI_THEN_SPACE = re.compile(f"((?:{_EMOJI_RUN})+)[ 　]+")
-_LEADING_EMOJI = re.compile(f"^(?:{_EMOJI_RUN})")
+_ANNOTATION_EMOJI = re.compile(_EMOJI_RUN)
 
 
 def _apply_style_emoji(text: str, emoji: str | None) -> str:
     """スタイルの注釈絵文字を読み上げ文へ添える。
 
-    本文が既に注釈絵文字で始まっている場合は足さない。書き手が明示した指示の方が、
-    スタイルに紐づく既定より意図が細かいため。長文が区間へ分割される場合、この層は
-    区間ごとに呼ばれるので、どの区間にも同じ指示が乗る。
+    本文に既に注釈絵文字がある場合は足さない。書き手が明示した指示の方が、
+    スタイルに紐づく既定より意図が細かいため。長文が分割される場合は区間ごとに
+    判定し、注釈のない区間にだけスタイルの指示を補う。
     """
 
     cleaned = _EMOJI_THEN_SPACE.sub(r"\1", text.strip())
-    if emoji and not _LEADING_EMOJI.match(cleaned):
+    if emoji and not _ANNOTATION_EMOJI.search(cleaned):
         return f"{emoji}{cleaned}"
     return cleaned
 

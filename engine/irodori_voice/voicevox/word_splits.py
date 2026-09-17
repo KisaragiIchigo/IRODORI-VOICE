@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..paths import user_data_root
+
 # アクセント句の境界を表す内部マーカー。合成テキストには残さない。
 PHRASE_MARKER = "|"
 
@@ -36,10 +38,44 @@ _HEADER = """\
 """
 
 
-def dictionary_path() -> Path:
-    """辞書ファイルの場所。"""
+# 配布版より前は実行ディレクトリへ直接置いていた。中身が残っていれば一度だけ引き継ぐ。
+_LEGACY_PATH = Path("word_splits.txt")
 
-    return Path("word_splits.txt")
+
+def dictionary_path() -> Path:
+    """辞書ファイルの場所。
+
+    実行ディレクトリからの相対で持つと、インストール先が作業ディレクトリになる
+    配布版では読めない。Program Files 配下は書き込みも権限で弾かれるため、登録が
+    そのまま失敗する。設定と同じユーザー領域へ置く。
+    """
+
+    return user_data_root() / "word_splits.txt"
+
+
+def _prepare() -> Path:
+    """辞書ファイルを、読める状態にして返す。
+
+    実行ディレクトリに残った古い辞書があれば引き継ぎ、どこにも無ければ書き方を
+    記した見出しだけのファイルを作る。利用者が手で開いて書き足せるファイルなので、
+    置き場所が分かる形で存在していること自体に意味がある。
+    """
+
+    path = dictionary_path()
+    if path.exists():
+        return path
+
+    try:
+        if _LEGACY_PATH.is_file():
+            path.write_text(
+                _LEGACY_PATH.read_text(encoding="utf-8-sig"), encoding="utf-8"
+            )
+        else:
+            path.write_text(_HEADER, encoding="utf-8")
+    except OSError:
+        # 作れなくても読み書きの本筋は止めない。load_splits が空を返して続く。
+        pass
+    return path
 
 
 def load_splits() -> dict[str, str]:
@@ -49,7 +85,7 @@ def load_splits() -> dict[str, str]:
     止めない。``=`` の前後の空白は書き手の癖として落とす。
     """
 
-    path = dictionary_path()
+    path = _prepare()
     if not path.is_file():
         return {}
 

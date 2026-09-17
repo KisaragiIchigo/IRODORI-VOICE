@@ -15,6 +15,18 @@ from .shared import engine_state, user_dict_store
 router = APIRouter(tags=["voicevox-compat"])
 
 
+def _invalidate_audio_cache(request: Request) -> None:
+    """辞書を書き換えたら、古い読みで作った音声を捨てる。
+
+    キャッシュを持つのは合成サービスで、バックエンドの一覧を持つ registry ではない。
+    起動しきる前はまだ組み立てられていないため、居なければ何もしない。
+    """
+
+    service = engine_state(request).service
+    if service is not None:
+        service.clear_cache()
+
+
 # ---------------------------------------------------------------- ユーザー辞書
 
 @router.get("/user_dict")
@@ -38,7 +50,7 @@ def add_user_dict_word(
         word_type=word_type or "PROPER_NOUN",  # type: ignore[arg-type]
         priority=priority if priority is not None else DEFAULT_PRIORITY,
     )
-    engine_state(request).registry.clear_cache()
+    _invalidate_audio_cache(request)
     return res
 
 
@@ -61,7 +73,7 @@ def rewrite_user_dict_word(
             word_type=word_type,  # type: ignore[arg-type]
             priority=priority,
         )
-        engine_state(request).registry.clear_cache()
+        _invalidate_audio_cache(request)
     except KeyError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -70,7 +82,7 @@ def rewrite_user_dict_word(
 def delete_user_dict_word(request: Request, word_uuid: str) -> None:
     try:
         user_dict_store.delete(word_uuid)
-        engine_state(request).registry.clear_cache()
+        _invalidate_audio_cache(request)
     except KeyError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
