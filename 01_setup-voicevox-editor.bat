@@ -53,18 +53,22 @@ if errorlevel 1 (
 )
 
 rem --- エディタを取得します -----------------------------------------------
-if exist "%DEST%\package.json" (
-  echo 既に %DEST% があります。取得は省略します。
-  echo 更新する場合は、そのフォルダで git pull を実行してください。
-) else (
-  echo VOICEVOX エディタを取得します...
-  git clone --depth 1 https://github.com/VOICEVOX/voicevox.git "%DEST%"
-  if errorlevel 1 (
-    echo 取得に失敗しました。
-    pause
-    exit /b 1
-  )
+if exist "%DEST%\package.json" goto :skip_clone
+
+echo VOICEVOX エディタを取得します...
+git clone --depth 1 https://github.com/VOICEVOX/voicevox.git "%DEST%"
+if errorlevel 1 (
+  echo 取得に失敗しました。
+  pause
+  exit /b 1
 )
+goto :after_clone
+
+:skip_clone
+echo 既に %DEST% があります。取得は省略します。
+echo 更新する場合は、そのフォルダで git pull を実行してください。
+
+:after_clone
 
 rem --- IRODORI-VOICE 用の設定を適用します ---------------------------------
 echo 接続設定（.env）を配置します...

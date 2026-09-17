@@ -309,7 +309,7 @@ registerHotkeyWithCleanup({
   },
   {
     name: "歌手不在時の既定歌手の決定",
-    file: join(editorSrc, "store", "singing.ts"),
+    file: join(editorSrc, "store", "song.ts"),
     original: `      const defaultStyleId =
         userOrderedCharacterInfos[0].metas.styles[0].styleId;
       const styleId = singer?.styleId ?? defaultStyleId;
