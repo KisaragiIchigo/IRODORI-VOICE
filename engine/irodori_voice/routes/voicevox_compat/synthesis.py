@@ -22,7 +22,6 @@ from ...synthesis.pipeline import (
     apply_output_format,
     synthesize_pipeline,
 )
-from ...synthesis.steps.apply_speed_scale import apply_speed_scale
 from ...state import EngineState
 from .shared import engine_state, speaker_map_for
 from .text_resolution import resolve_source_text
@@ -96,7 +95,7 @@ def _synthesis_params(
 
 
 def _run_pipeline(
-    state: EngineState, params: SynthesisParams, output: OutputFormat
+    state: EngineState, params: SynthesisParams, output: OutputFormat, *, speed_scale: float
 ) -> PipelineResult:
     """パイプラインを設定どおりに回し、失敗を HTTP の応答へ翻訳する。"""
 
@@ -112,6 +111,7 @@ def _run_pipeline(
             ),
             output=output,
             low_band=LowBandPolicy(enabled=settings.restore_low_band),
+            speed_scale=speed_scale,
         )
     except BackendError as exc:
         raise HTTPException(
@@ -131,8 +131,7 @@ def synthesis(
 ) -> Response:
     """AudioQuery から wav を合成する。
 
-    話者を解く、テキストを取り戻す、パイプラインを回す、話速へ伸ばす。
-    この 4 つを順に呼ぶだけに保つ。
+    話者を解き、テキストを取り戻し、話速と出力形式をパイプラインへ渡す。
     """
 
     state = engine_state(request)
@@ -155,10 +154,11 @@ def synthesis(
             sample_rate=int(payload.outputSamplingRate) or None,
             stereo=bool(payload.outputStereo),
         ),
+        speed_scale=float(payload.speedScale),
     )
 
     return Response(
-        content=apply_speed_scale(result.audio.wav, scale=float(payload.speedScale)),
+        content=result.audio.wav,
         media_type="audio/wav",
         headers={"Cache-Control": "no-store"},
     )
@@ -180,12 +180,13 @@ def connect_waves(waves: list[str] = Body(...)) -> Response:
     sample_rate: int | None = None
     for encoded in waves:
         try:
-            data, rate = sf.read(io.BytesIO(base64.b64decode(encoded)), dtype="float32")
+            data, rate = sf.read(io.BytesIO(base64.b64decode(encoded)), dtype="float32", always_2d=True)
         except Exception as exc:
             raise HTTPException(status_code=422, detail=f"音声を読み取れませんでした: {exc}") from exc
 
-        if data.ndim == 2:
-            data = data.mean(axis=1)
+        if data.shape[1] not in (1, 2):
+            raise HTTPException(status_code=422, detail="結合できる音声はモノラルまたはステレオです。")
+        data = audio_utils.as_stereo(data)
         if sample_rate is None:
             sample_rate = int(rate)
         elif int(rate) != sample_rate:

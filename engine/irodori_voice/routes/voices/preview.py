@@ -65,7 +65,7 @@ def preview_seed(request: Request, payload: SeedPreviewRequest) -> Response:
         # 合成が失敗しても一時の話者は残さない。
         state.store.delete(preset.preset_id)
 
-    wav = audio_utils.encode_wav(result.samples, sample_rate=result.sample_rate)
+    wav = audio_utils.encode_wav_stereo(result.samples, sample_rate=result.sample_rate)
 
     pitch = estimate_pitch(result.samples, result.sample_rate)
     meta = {

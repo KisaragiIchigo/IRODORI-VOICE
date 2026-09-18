@@ -35,18 +35,19 @@ def tearDownModule():
 
 
 class SeedProfileTests(unittest.TestCase):
-    def request(self, style, *, steps=None, global_steps=8, reference=True):
+    def request(self, style, *, steps=None, global_steps=8, reference=True,
+                voice_seed=114514, text="😭こんにちは。", design_steps=None):
         instance = object.__new__(IrodoriBackend)
-        instance._settings = EngineSettings(num_steps=global_steps)
+        instance._settings = EngineSettings(num_steps=global_steps, voice_design_steps=design_steps)
         instance._reference_cache = Mock()
         instance._reference_cache.resolve.return_value = ["参照.pt"]
         preset = VoicePreset(
             preset_id="test", name="確認用", description="", color_key="shu",
             mode="reference" if reference else "caption", styles=[style],
-            reference_files=["参照.wav"] if reference else [], voice_seed=114514,
+            reference_files=["参照.wav"] if reference else [], voice_seed=voice_seed,
         )
         return instance._build_request(
-            params=SynthesisParams(text="😭こんにちは。", voice_id="irodori:test", steps=steps),
+            params=SynthesisParams(text=text, voice_id="irodori:test", steps=steps),
             preset=preset, style=style, runtime=None,
         )
 
@@ -68,13 +69,47 @@ class SeedProfileTests(unittest.TestCase):
         self.assertEqual(self.request(old_style).num_steps, 8)
         self.assertIsNone(self.request(old_style, global_steps=None).num_steps)
 
-    def test_reference_free_preview_keeps_engine_defaults(self):
+    def test_reference_free_uses_model_defaults_despite_old_engine_settings(self):
         style = VoiceStyleDef(style_id="normal", name="通常")
         request = self.request(style, reference=False)
-        self.assertEqual(request.num_steps, 8)
+        self.assertIsNone(request.num_steps)
         self.assertEqual(request.cfg_scale_caption, 3.0)
-        self.assertEqual(request.cfg_scale_text, 5.0)
+        self.assertEqual(request.cfg_scale_text, 3.0)
         self.assertTrue(request.no_ref)
+
+    def test_reference_free_respects_explicit_steps_and_text_guidance(self):
+        style = VoiceStyleDef(style_id="normal", name="通常", cfg_scale_text=2.0)
+        self.assertEqual(self.request(style, reference=False, steps=12).num_steps, 12)
+        self.assertEqual(self.request(style, reference=False).cfg_scale_text, 2.0)
+        self.assertEqual(self.request(style, reference=False, design_steps=32).num_steps, 32)
+        style.num_steps = 24
+        self.assertEqual(self.request(style, reference=False).num_steps, 24)
+
+    def test_seed_voices_preserve_original_text_and_dictionary_overrides(self):
+        style = VoiceStyleDef(style_id="normal", name="通常")
+        with patch("irodori_voice.backends.irodori.backend.shared_user_dict") as dictionary:
+            dictionary.return_value.reading_overrides.return_value = [("嗚咽", "ムセビナキ")]
+            for reference in (False, True):
+                request = self.request(style, reference=reference, text="嗚咽しながら話している。")
+                self.assertEqual(request.text, "むせびなきしながら話している。")
+                self.assertIsNone(request.caption)
+            borrowed = self.request(style, voice_seed=None, text="嗚咽しながら話している。")
+            self.assertEqual(borrowed.text, "むせびなきしながらはなしている。")
+
+    def test_builtin_voices_use_quality_defaults_without_erasing_style(self):
+        from irodori_voice.voices.presets import BUILTIN_PRESETS
+        for preset in BUILTIN_PRESETS:
+            style = preset.styles[0]
+            request = self.request(style, reference=False, voice_seed=None, text="今日は晴れです。")
+            self.assertEqual(request.text, "今日は晴れです。")
+            self.assertEqual(request.caption, style.caption)
+            self.assertEqual(request.cfg_scale_text, 3.0)
+            self.assertIsNone(request.num_steps)
+
+    def test_saved_eight_step_settings_do_not_lower_voice_design_quality(self):
+        settings = EngineSettings.from_json({"num_steps": 8})
+        self.assertEqual(settings.num_steps, 8)
+        self.assertIsNone(settings.voice_design_steps)
 
     def test_borrowed_voice_keeps_existing_settings(self):
         style = VoiceStyleDef(style_id="normal", name="通常", cfg_scale_speaker=3.0)

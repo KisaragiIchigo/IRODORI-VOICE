@@ -97,6 +97,8 @@ if not errorlevel 1 (
 )
 
 set ELECTRON_RUN_AS_NODE=
+set PYTHONUNBUFFERED=1
+set PYTHONIOENCODING=utf-8
 
 cd /d "%DEST%"
 call pnpm run electron:serve

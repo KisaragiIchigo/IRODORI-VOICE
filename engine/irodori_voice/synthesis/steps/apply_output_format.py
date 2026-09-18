@@ -16,7 +16,7 @@ from ... import audio as audio_utils
 @dataclass(frozen=True)
 class OutputFormat:
     sample_rate: int | None = None
-    stereo: bool = False
+    stereo: bool = True
 
 
 @dataclass

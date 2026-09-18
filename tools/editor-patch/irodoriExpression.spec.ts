@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { fetchAudioFromAudioItem } from "@/store/audioGenerate";
 import type { AudioItem, AudioStoreState, SettingStoreState } from "@/store/type";
-import { EngineId, SpeakerId, StyleId } from "@/type/preload";
+import { EngineId, SpeakerId, StyleId, savingSettingSchema } from "@/type/preload";
 
 const irodoriId = EngineId("0b2a5f31-9c4d-4f6a-8e7b-3d1c5a9f2e40");
 
@@ -32,6 +32,20 @@ function fixture(engineId = irodoriId) {
 }
 
 describe("IRODORI-VOICE の表現指定", () => {
+  test("ステレオ設定を保存済みクエリへ反映し、変更時は再生成する", async () => {
+    const { state, audioItem, instance, synthesis } = fixture();
+    audioItem.text = "ステレオ出力の確認です。";
+    state.savingSetting.outputStereo = savingSettingSchema.parse({}).outputStereo;
+    expect(state.savingSetting.outputStereo).toBe(true);
+    const stereo = await fetchAudioFromAudioItem(state, instance, { audioItem });
+    expect(stereo.audioQuery.outputStereo).toBe(true);
+    expect(audioItem.query?.outputStereo).toBe(false);
+    state.savingSetting.outputStereo = false;
+    const mono = await fetchAudioFromAudioItem(state, instance, { audioItem });
+    expect(mono.audioQuery.outputStereo).toBe(false);
+    expect(synthesis).toHaveBeenCalledTimes(2);
+  });
+
   test("保存済みの古い kana より現在の本文を送り、絵文字の変更で再生成する", async () => {
     const { state, audioItem, instance, synthesis } = fixture();
     const first = await fetchAudioFromAudioItem(state, instance, { audioItem });

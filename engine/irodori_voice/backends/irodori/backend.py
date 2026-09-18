@@ -287,25 +287,25 @@ class IrodoriBackend:
         # ここで落ちるのは登録されていない記号だけになる。
         text = drop_unreadable_symbols(text)
         text = _apply_style_emoji(text, style.emoji)
-        text = apply_pronunciation(text)
+        # シード由来の声は原文で生成する。借りた声で採用済みの読み補正は維持する。
+        if preset.mode != "caption" and preset.voice_seed is None:
+            text = apply_pronunciation(text)
         text = append_expression_pause(text)
         caption = build_expression_caption(
             text, style_caption=style.caption, explicit_caption=params.caption,
         )
 
-        cfg_scale_text = float(style.cfg_scale_text)
-        if preset.mode == "caption":
-            # 参照音声なし（シード）の場合はAIの幻覚が暴走しやすく、ひらがなや辞書指定を無視しがち。
-            # テキスト条件の拘束力（cfg_scale_text）を強制的に底上げして、辞書への食いつきを改善する。
-            cfg_scale_text = max(cfg_scale_text, 5.0)
-
-        num_steps = style.num_steps if style.num_steps is not None else self._settings.num_steps
+        default_steps = (
+            self._settings.voice_design_steps if preset.mode == "caption"
+            else self._settings.num_steps
+        )
+        num_steps = style.num_steps if style.num_steps is not None else default_steps
         request = SamplingRequest(
             text=text,
             caption=caption,
             seconds=None,
             duration_scale=duration_scale,
-            cfg_scale_text=cfg_scale_text,
+            cfg_scale_text=float(style.cfg_scale_text),
             cfg_scale_caption=caption_scale,
             cfg_scale_speaker=float(style.cfg_scale_speaker),
             # プリセットにシードが設定されていれば、要求の指定より優先する。

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-# VOICEVOX の既定出力。外部ツールはこの値を前提に持っていることがある。
-DEFAULT_OUTPUT_SAMPLING_RATE = 24000
+# 生成音声の高域を残す既定出力。外部ツールからの明示指定は合成時に尊重する。
+DEFAULT_OUTPUT_SAMPLING_RATE = 48000
 
 
 class Mora(BaseModel):
@@ -44,7 +44,7 @@ class AudioQuery(BaseModel):
     pauseLength: float | None = None
     pauseLengthScale: float = 1.0
     outputSamplingRate: int = DEFAULT_OUTPUT_SAMPLING_RATE
-    outputStereo: bool = False
+    outputStereo: bool = True
     kana: str | None = None
 
 

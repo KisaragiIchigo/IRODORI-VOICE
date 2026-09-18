@@ -38,9 +38,9 @@ def pad_silence(
         return samples
     return np.concatenate(
         [
-            np.zeros(pre, dtype=np.float32),
+            np.zeros((pre, *samples.shape[1:]), dtype=np.float32),
             samples.astype(np.float32, copy=False),
-            np.zeros(post, dtype=np.float32),
+            np.zeros((post, *samples.shape[1:]), dtype=np.float32),
         ]
     )
 
@@ -51,10 +51,26 @@ def concat_segments(segments: list[np.ndarray]) -> np.ndarray:
     return np.concatenate([s.astype(np.float32, copy=False) for s in segments])
 
 
+def normalize_pcm16_peak(samples: np.ndarray) -> np.ndarray:
+    """16bit の振幅上限を超える場合だけ、全チャンネル共通で減衰する。"""
+    limit = 32767 / 32768
+    peak = float(np.max(np.abs(samples))) if samples.size else 0.0
+    return samples * (limit / peak) if peak > limit else samples
+
+
 def encode_wav(samples: np.ndarray, *, sample_rate: int, subtype: str = "PCM_16") -> bytes:
     buffer = io.BytesIO()
+    if subtype == "PCM_16":
+        samples = normalize_pcm16_peak(samples)
     sf.write(buffer, samples.astype(np.float32, copy=False), int(sample_rate), format="WAV", subtype=subtype)
     return buffer.getvalue()
+
+
+def as_stereo(samples: np.ndarray) -> np.ndarray:
+    """左右がある波形は保ち、モノラルだけを左右へ複製する。"""
+    if samples.ndim == 1:
+        return np.repeat(samples[:, None], 2, axis=1)
+    return np.repeat(samples, 2, axis=1) if samples.shape[1] == 1 else samples
 
 
 def encode_wav_stereo(samples: np.ndarray, *, sample_rate: int, subtype: str = "PCM_16") -> bytes:
@@ -64,11 +80,8 @@ def encode_wav_stereo(samples: np.ndarray, *, sample_rate: int, subtype: str = "
     左右に同じ信号を置くだけで定位は作らない。
     """
 
-    mono = samples.astype(np.float32, copy=False)
-    stereo = np.stack([mono, mono], axis=1)
-    buffer = io.BytesIO()
-    sf.write(buffer, stereo, int(sample_rate), format="WAV", subtype=subtype)
-    return buffer.getvalue()
+    stereo = as_stereo(samples.astype(np.float32, copy=False))
+    return encode_wav(stereo, sample_rate=sample_rate, subtype=subtype)
 
 
 def resample(samples: np.ndarray, *, source_rate: int, target_rate: int) -> np.ndarray:
@@ -86,9 +99,11 @@ def resample(samples: np.ndarray, *, source_rate: int, target_rate: int) -> np.n
         import torch
         import torchaudio
 
-        tensor = torch.from_numpy(np.ascontiguousarray(samples, dtype=np.float32)).unsqueeze(0)
+        channels = samples[None, :] if samples.ndim == 1 else samples.T
+        tensor = torch.from_numpy(np.ascontiguousarray(channels, dtype=np.float32))
         converted = torchaudio.functional.resample(tensor, int(source_rate), int(target_rate))
-        return converted.squeeze(0).numpy().astype(np.float32, copy=False)
+        result = converted.numpy()
+        return (result[0] if samples.ndim == 1 else result.T).astype(np.float32, copy=False)
     except Exception:
         return resample_linear(samples, source_rate=source_rate, target_rate=target_rate)
 
@@ -102,8 +117,12 @@ def resample_linear(samples: np.ndarray, *, source_rate: int, target_rate: int) 
 
     if source_rate == target_rate or samples.size == 0:
         return samples.astype(np.float32, copy=False)
-    duration = samples.size / float(source_rate)
+    duration = len(samples) / float(source_rate)
     target_length = max(1, int(round(duration * target_rate)))
-    source_positions = np.linspace(0.0, duration, num=samples.size, endpoint=False)
+    source_positions = np.linspace(0.0, duration, num=len(samples), endpoint=False)
     target_positions = np.linspace(0.0, duration, num=target_length, endpoint=False)
-    return np.interp(target_positions, source_positions, samples).astype(np.float32)
+    if samples.ndim == 1:
+        return np.interp(target_positions, source_positions, samples).astype(np.float32)
+    return np.stack([
+        np.interp(target_positions, source_positions, channel) for channel in samples.T
+    ], axis=1).astype(np.float32)

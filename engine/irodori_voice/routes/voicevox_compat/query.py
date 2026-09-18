@@ -49,7 +49,6 @@ def audio_query(
         prePhonemeLength=0.1,
         postPhonemeLength=0.1,
         outputSamplingRate=DEFAULT_OUTPUT_SAMPLING_RATE,
-        outputStereo=False,
         # 元の表記を添えて返す。VOICEVOX の AudioQuery は読みしか持たないため、
         # これが無いと /synthesis 側で漢字混じりの表記を取り戻せない。エディタは
         # この値をプロジェクトへ保存して送り返すので、エンジンを再起動しても残る。

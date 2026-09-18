@@ -31,6 +31,7 @@ import numpy as np
 import soundfile as sf
 
 from .speed import build_speed_plan, detect_pause_spans, render_speed_plan
+from ...audio import encode_wav
 
 # この幅に収まる指定は等倍として扱う。聞き分けられない差のために、
 # 位相ボコーダを通して音を作り直す意味がない。
@@ -45,6 +46,15 @@ def apply_speed_scale(wav: bytes, *, scale: float) -> bytes:
 
     with io.BytesIO(wav) as source:
         samples, sample_rate = sf.read(source, dtype="float32")
+
+    stretched = apply_speed_samples(samples, sample_rate=sample_rate, scale=scale)
+    return encode_wav(stretched, sample_rate=sample_rate)
+
+
+def apply_speed_samples(samples: np.ndarray, *, sample_rate: int, scale: float) -> np.ndarray:
+    """生成レートの浮動小数点波形を伸縮する。量子化とピーク保護は最終保存で行う。"""
+    if abs(scale - 1.0) <= SPEED_EPSILON or samples.size == 0:
+        return samples
 
     # pedalboard は (チャンネル, サンプル) で受け取る。soundfile が返すのは逆向き。
     channels = samples[None, :] if samples.ndim == 1 else samples.T
@@ -62,6 +72,4 @@ def apply_speed_scale(wav: bytes, *, scale: float) -> bytes:
     )
     stretched = render_speed_plan(channels, sample_rate=sample_rate, plan=plan)
 
-    with io.BytesIO() as sink:
-        sf.write(sink, stretched.T, sample_rate, format="WAV", subtype="PCM_16")
-        return sink.getvalue()
+    return stretched[0] if samples.ndim == 1 else stretched.T

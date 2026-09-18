@@ -14,6 +14,8 @@ cd /d "%ROOT%"
 
 set EDITOR_DIR=%ROOT%editor-voicevox
 set VENV_PY=%ROOT%runtime\Scripts\python.exe
+set PYTHONUNBUFFERED=1
+set PYTHONIOENCODING=utf-8
 
 echo ============================================================
 echo IRODORI-VOICE 全自動ランチャー

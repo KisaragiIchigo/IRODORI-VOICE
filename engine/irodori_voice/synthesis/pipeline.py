@@ -21,8 +21,11 @@
     厚みの戻った波形
       │  apply_low_band_restore     痩せた低域だけ持ち上げる
       ▼
+    話速の変わった波形
+      │  apply_speed_samples        生成レートのまま伸縮
+      ▼
     出力
-         apply_output_format        レート変換とステレオ化
+         apply_output_format        レート変換・ステレオ化・ピーク保護
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ from dataclasses import dataclass, field
 from ..backends.base import SynthesisOutput, SynthesisParams
 from .steps.apply_low_band_restore import LowBandPolicy, apply_low_band_restore
 from .steps.apply_output_format import FormattedAudio, OutputFormat, apply_output_format
+from .steps.apply_speed_scale import apply_speed_samples
 from .steps.build_segment_params import build_segment_params
 from .steps.join_segments import join_segments
 from .steps.resolve_seed import resolve_seed_for_request
@@ -71,6 +75,7 @@ def synthesize_pipeline(
     split: SplitPolicy = SplitPolicy(),
     output: OutputFormat = OutputFormat(),
     low_band: LowBandPolicy = LowBandPolicy(),
+    speed_scale: float = 1.0,
 ) -> PipelineResult:
     """テキスト 1 件を合成し、wav まで仕上げて返す。"""
 
@@ -108,8 +113,14 @@ def synthesize_pipeline(
         policy=low_band,
     )
 
-    formatted = apply_output_format(
+    stretched = apply_speed_samples(
         restored.samples,
+        sample_rate=joined.sample_rate,
+        scale=speed_scale,
+    )
+
+    formatted = apply_output_format(
+        stretched,
         source_rate=joined.sample_rate,
         output=output,
     )

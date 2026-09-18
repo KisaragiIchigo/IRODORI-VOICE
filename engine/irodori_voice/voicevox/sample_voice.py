@@ -18,15 +18,14 @@ NotSupportedError で再生処理ごと落ちる（エディタ側に存在チ�
 from __future__ import annotations
 
 import base64
-import io
 import threading
 from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
-import soundfile as sf
 
 from ..paths import cache_root
+from ..audio import encode_wav_stereo
 
 SAMPLE_RATE = 24000
 SILENT_SECONDS = 0.2
@@ -47,14 +46,13 @@ def _sample_dir() -> Path:
 
 
 def _sample_path(voice_id: str, style_id: str | None, index: int) -> Path:
-    key = f"{voice_id}_{style_id or 'default'}_{index}".replace(":", "-").replace("/", "-")
+    # モノラル出力の旧キャッシュは再利用しない。
+    key = f"v3_{voice_id}_{style_id or 'default'}_{index}".replace(":", "-").replace("/", "-")
     return _sample_dir() / f"{key}.wav"
 
 
 def _encode(samples: np.ndarray, rate: int) -> str:
-    buffer = io.BytesIO()
-    sf.write(buffer, samples.astype(np.float32, copy=False), rate, format="WAV", subtype="PCM_16")
-    return base64.b64encode(buffer.getvalue()).decode("ascii")
+    return base64.b64encode(encode_wav_stereo(samples, sample_rate=rate)).decode("ascii")
 
 
 def silent_sample_base64() -> str:

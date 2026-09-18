@@ -149,6 +149,18 @@ export const overrides = [
 /** 既存ファイルへの置換。 */
 export const patches = [
   {
+    name: "保存設定のステレオ既定値",
+    file: join(editorSrc, "type", "preload.ts"),
+    original: "outputStereo: z.boolean().default(false)",
+    patched: "outputStereo: z.boolean().default(true)",
+  },
+  {
+    name: "保存状態のステレオ初期値",
+    file: join(editorSrc, "store", "setting.ts"),
+    original: "outputStereo: false,",
+    patched: "outputStereo: true,",
+  },
+  {
     name: "合成時に現在の本文の表現指定を渡すための読み抽出",
     file: join(editorSrc, "store", "audioGenerate.ts"),
     original: 'import { generateTempUniqueId } from "./utility";',
@@ -309,7 +321,7 @@ registerHotkeyWithCleanup({
   },
   {
     name: "歌手不在時の既定歌手の決定",
-    file: join(editorSrc, "store", "song.ts"),
+    file: join(editorSrc, "store", "singing.ts"),
     original: `      const defaultStyleId =
         userOrderedCharacterInfos[0].metas.styles[0].styleId;
       const styleId = singer?.styleId ?? defaultStyleId;

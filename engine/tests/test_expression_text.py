@@ -108,8 +108,7 @@ class ExpressionTextTests(unittest.TestCase):
                         params=SynthesisParams(text=resolution.resolve_source_text(query), voice_id="irodori:check"),
                         preset=preset, style=style, runtime=None,
                     )
-                    expected = text.replace("今日は晴れです", "きょーははれです")
-                    expected = expected.replace("こんにちは。", "こんにちは..。") if text.startswith(annotation) else expected.replace("はれです！", "はれです..！")
+                    expected = text.replace("こんにちは。", "こんにちは..。") if text.startswith(annotation) else text.replace("晴れです！", "晴れです..！")
                     self.assertEqual(normalize_text(request.text), normalize_text(expected))
                     self.assertIn(annotation, normalize_text(request.text))
 
@@ -141,10 +140,10 @@ class ExpressionTextTests(unittest.TestCase):
                         preset=preset, style=style, runtime=None,
                     )
                     self.assertEqual(request.caption, style.caption + "\n" + EXPRESSION_CAPTIONS[annotation])
-                    expected_text = text.replace("了解", "りょーかい").replace(annotation + " ", annotation)
+                    expected_text = text.replace(annotation + " ", annotation)
                     expected_text += ".."
                     self.assertEqual(request.text, expected_text)
-                    self.assertEqual(request.num_steps, 8)
+                    self.assertIsNone(request.num_steps)
 
     def test_approved_sample_captions(self):
         from irodori_voice.backends.irodori.expression_caption import build_expression_caption
