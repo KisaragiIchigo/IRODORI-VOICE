@@ -299,6 +299,7 @@ class SettingsOut(BaseModel):
     codec_device: str
     codec_precision: str
     num_steps: int | None
+    pronunciation_mode: str
     runtime_pool_size: int
     reference_latent_cache: bool
     warmup_on_start: bool
@@ -311,6 +312,7 @@ class SettingsUpdateRequest(BaseModel):
     codec_device: Literal["auto", "cuda", "cpu", "mps", "xpu"] | None = None
     codec_precision: Literal["auto", "fp32", "bf16"] | None = None
     num_steps: int | None = Field(None, ge=1, le=128)
+    pronunciation_mode: Literal["off", "kanji"] | None = None
     runtime_pool_size: int | None = Field(None, ge=1, le=4)
     reference_latent_cache: bool | None = None
     warmup_on_start: bool | None = None

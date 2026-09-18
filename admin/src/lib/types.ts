@@ -85,6 +85,22 @@ export type CheckpointList = {
   checkpoints: Checkpoint[];
 };
 
+/** 漢字語を読みへ置き換えてからモデルへ渡すか。 */
+export type PronunciationMode = "off" | "kanji";
+
+export type EngineSettings = {
+  checkpoint: string;
+  model_device: string;
+  model_precision: string;
+  codec_device: string;
+  codec_precision: string;
+  num_steps: number | null;
+  pronunciation_mode: PronunciationMode;
+  runtime_pool_size: number;
+  reference_latent_cache: boolean;
+  warmup_on_start: boolean;
+};
+
 export type ModelBuildResult = {
   uuid: string;
   name: string;

@@ -36,9 +36,14 @@ def tearDownModule():
 
 class SeedProfileTests(unittest.TestCase):
     def request(self, style, *, steps=None, global_steps=8, reference=True,
-                voice_seed=114514, text="😭こんにちは。", design_steps=None):
+                voice_seed=114514, text="😭こんにちは。", design_steps=None,
+                pronunciation_mode="off"):
         instance = object.__new__(IrodoriBackend)
-        instance._settings = EngineSettings(num_steps=global_steps, voice_design_steps=design_steps)
+        instance._settings = EngineSettings(
+            num_steps=global_steps,
+            voice_design_steps=design_steps,
+            pronunciation_mode=pronunciation_mode,
+        )
         instance._reference_cache = Mock()
         instance._reference_cache.resolve.return_value = ["参照.pt"]
         preset = VoicePreset(
@@ -93,8 +98,16 @@ class SeedProfileTests(unittest.TestCase):
                 request = self.request(style, reference=reference, text="嗚咽しながら話している。")
                 self.assertEqual(request.text, "むせびなきしながら話している。")
                 self.assertIsNone(request.caption)
+            # 借りた声も、既定では表記のまま渡る。読みの置き換えは設定で選んだときだけ。
             borrowed = self.request(style, voice_seed=None, text="嗚咽しながら話している。")
-            self.assertEqual(borrowed.text, "むせびなきしながらはなしている。")
+            self.assertEqual(borrowed.text, "むせびなきしながら話している。")
+            explicit = self.request(
+                style, voice_seed=None, text="嗚咽しながら話している。", pronunciation_mode="kanji"
+            )
+            self.assertEqual(explicit.text, "むせびなきしながらはなしている。")
+            # シードで固定した声は、読みを明示する設定でも表記のまま渡る。
+            fixed = self.request(style, text="嗚咽しながら話している。", pronunciation_mode="kanji")
+            self.assertEqual(fixed.text, "むせびなきしながら話している。")
 
     def test_builtin_voices_use_quality_defaults_without_erasing_style(self):
         from irodori_voice.voices.presets import BUILTIN_PRESETS

@@ -258,6 +258,79 @@ class PronunciationTests(unittest.TestCase):
 
         self.assertEqual(to_hiragana("カナシミ ヴァ ギャ ポッ ー ABC123😊"), "かなしみ ゔぁ ぎゃ ぽっ ー ABC123😊")
 
+    def test_long_vowels_open_into_their_own_vowel(self):
+        """長音記号のまま渡すと、日本語の文章に現れない綴りになってアクセントが崩れる。"""
+
+        from irodori_voice.backends.irodori.pronunciation import expand_long_vowels
+
+        cases = {
+            "せってー": "せってい",
+            "せーせーかいすー": "せいせいかいすう",
+            "へんこー": "へんこう",
+            "きょー": "きょう",
+            "とーきょーえき": "とうきょうえき",
+            "じゅーぶん": "じゅうぶん",
+            "おかーさん": "おかあさん",
+            "ちーさい": "ちいさい",
+            "かなしみ": "かなしみ",
+            "": "",
+        }
+        for reading, expected in cases.items():
+            with self.subTest(reading=reading):
+                self.assertEqual(expand_long_vowels(reading), expected)
+
+        # 母音を持たない仮名が直前にあるときは開く先が決まらない。落とさずに残す。
+        for reading in ("んー", "っー", "ー"):
+            with self.subTest(reading=reading):
+                self.assertEqual(expand_long_vowels(reading), reading)
+
+    def test_whole_sentence_reading_has_no_long_vowel_marks(self):
+        from irodori_voice.backends.irodori.pronunciation import apply_pronunciation
+
+        self.assertEqual(
+            apply_pronunciation("設定画面から生成回数を変更できます。"),
+            "せっていがめんからせいせいかいすうをへんこうできます。",
+        )
+
+
+class PronunciationModeTests(unittest.TestCase):
+    """読みの置き換えを掛けるかどうかは設定で決まる。既定は掛けない。"""
+
+    def build(self, mode, *, voice_seed=None, text="設定画面を確認します。"):
+        from irodori_voice.backends.irodori.reference_cache import ReferenceLatentCache
+        from irodori_voice.settings import EngineSettings
+
+        instance = object.__new__(backend.IrodoriBackend)
+        instance._settings = EngineSettings(pronunciation_mode=mode)
+        # 参照 wav は読まない。latent キャッシュを無効にすると wav の経路へ落ち、
+        # 要求の組み立てだけを確認できる。
+        instance._reference_cache = ReferenceLatentCache(enabled=False)
+        style = VoiceStyleDef(style_id="normal", name="確認用")
+        preset = VoicePreset(
+            preset_id="check", name="確認用", description="", color_key="shu",
+            mode="reference", styles=[style], reference_files=["dummy.wav"],
+            voice_seed=voice_seed,
+        )
+        request = instance._build_request(
+            params=SynthesisParams(text=text, voice_id="irodori:check"),
+            preset=preset, style=style, runtime=None,
+        )
+        return request.text
+
+    def test_default_setting_keeps_original_notation(self):
+        from irodori_voice.settings import EngineSettings
+
+        self.assertEqual(EngineSettings().pronunciation_mode, "off")
+        self.assertEqual(self.build("off"), "設定画面を確認します。")
+
+    def test_kanji_mode_replaces_with_reading(self):
+        self.assertEqual(self.build("kanji"), "せっていがめんをかくにんします。")
+
+    def test_seed_voice_keeps_original_notation_in_both_modes(self):
+        for mode in ("off", "kanji"):
+            with self.subTest(mode=mode):
+                self.assertEqual(self.build(mode, voice_seed=42), "設定画面を確認します。")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -25,6 +25,7 @@ MIN_GPU_MEMORY_BYTES_FOR_MODEL = 6 * 1024**3
 
 DeviceChoice = Literal["auto", "cuda", "cpu", "mps", "xpu"]
 PrecisionChoice = Literal["auto", "fp32", "bf16"]
+PronunciationMode = Literal["off", "kanji"]
 
 
 @dataclass(frozen=True)
@@ -71,6 +72,21 @@ class EngineSettings:
     split_long_text: bool = True
     split_target_chars: int = 38
     split_max_chars: int = 60
+
+    # 漢字を含む語を OpenJTalk の読みへ置き換えてからモデルへ渡すか。
+    #
+    # Irodori-TTS は表記からそのまま音を作るモデルで、漢字かな交じりの文章で学習して
+    # いる。読みへ置き換えると、その語が何だったかという手がかりが消え、アクセントの
+    # 置きどころが崩れる（実測: 「設定画面から生成回数を変更できます。」が
+    # 「せっていがめんからせいせいかいすうをへんこうできます。」になる）。
+    #
+    # "off"   … 表記のまま渡す。抑揚は Irodori-TTS 本体と同じ条件になる。
+    # "kanji" … 解析できた漢字語を読みへ置き換える。難しい語や固有名詞の読み違いを
+    #           抑えられる代わりに、抑揚は崩れやすくなる。
+    #
+    # どちらでも、ユーザー辞書に登録した語の読み替えは効く。読みを直したい語が
+    # 限られるなら、"off" のまま辞書へ登録する方が抑揚を保てる。
+    pronunciation_mode: PronunciationMode = "off"
 
     # 感嘆詞だけが並ぶ行は息声になり、低域が普通の文の約 0.3 倍まで落ちる。
     # 合成後に不足分だけ持ち上げる。足りている行には掛からない。

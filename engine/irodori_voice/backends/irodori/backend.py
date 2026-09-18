@@ -287,8 +287,13 @@ class IrodoriBackend:
         # ここで落ちるのは登録されていない記号だけになる。
         text = drop_unreadable_symbols(text)
         text = _apply_style_emoji(text, style.emoji)
-        # シード由来の声は原文で生成する。借りた声で採用済みの読み補正は維持する。
-        if preset.mode != "caption" and preset.voice_seed is None:
+        # 漢字語の読みを明示するかは設定で決める。表記を書き換えると抑揚が崩れるため、
+        # 既定では掛けない。シード由来の声は、掛ける設定でも原文のまま生成する。
+        if (
+            self._settings.pronunciation_mode == "kanji"
+            and preset.mode != "caption"
+            and preset.voice_seed is None
+        ):
             text = apply_pronunciation(text)
         text = append_expression_pause(text)
         caption = build_expression_caption(

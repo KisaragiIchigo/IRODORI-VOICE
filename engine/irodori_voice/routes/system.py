@@ -17,6 +17,10 @@ from ..state import EngineState
 
 router = APIRouter(tags=["system"])
 
+# 変えると合成結果そのものが変わる設定。合成済みの音が残っていると、切り替えたのに
+# 音が変わらないように見えるため、保存と同時に捨てる。
+AUDIO_AFFECTING_SETTINGS = frozenset({"checkpoint", "num_steps", "pronunciation_mode"})
+
 
 def _state(request: Request) -> EngineState:
     return request.app.state.engine
@@ -79,6 +83,7 @@ def read_settings(request: Request) -> SettingsOut:
         codec_device=settings.codec_device,
         codec_precision=settings.codec_precision,
         num_steps=settings.num_steps,
+        pronunciation_mode=settings.pronunciation_mode,
         runtime_pool_size=settings.runtime_pool_size,
         reference_latent_cache=settings.reference_latent_cache,
         warmup_on_start=settings.warmup_on_start,
@@ -95,7 +100,13 @@ def update_settings(request: Request, payload: SettingsUpdateRequest) -> Setting
 
     state = _state(request)
     changes = payload.model_dump(exclude_none=True)
+    affects_audio = any(
+        key in AUDIO_AFFECTING_SETTINGS and getattr(state.settings, key) != value
+        for key, value in changes.items()
+    )
     for key, value in changes.items():
         setattr(state.settings, key, value)
     save_settings(state.settings)
+    if affects_audio and state.service is not None:
+        state.service.clear_cache()
     return read_settings(request)

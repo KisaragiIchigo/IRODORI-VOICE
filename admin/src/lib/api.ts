@@ -15,6 +15,7 @@ import type {
   BackendStatus,
   CheckpointList,
   CloneRequest,
+  EngineSettings,
   ModelBuildResult,
   SeedPreview,
   SeedVoiceRequest,
@@ -43,6 +44,16 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return unwrap<T>(
     await fetch(`${API}${path}`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+async function patchJson<T>(path: string, body: unknown): Promise<T> {
+  return unwrap<T>(
+    await fetch(`${API}${path}`, {
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
@@ -163,6 +174,12 @@ export const api = {
   listBackends: () => getJson<BackendStatus[]>("/backends"),
 
   listCheckpoints: () => getJson<CheckpointList>("/models"),
+
+  readSettings: () => getJson<EngineSettings>("/settings"),
+
+  /** 設定を部分更新する。モデルの読み直しを伴う項目は次の起動から効く。 */
+  updateSettings: (changes: Partial<EngineSettings>) =>
+    patchJson<EngineSettings>("/settings", changes),
 
   selectCheckpoint: (checkpoint: string, steps?: number) => {
     const params = new URLSearchParams({ checkpoint });
