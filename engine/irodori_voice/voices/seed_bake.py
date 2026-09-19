@@ -25,15 +25,14 @@
 
 from __future__ import annotations
 
-import uuid
-
 from .. import audio as audio_utils
 from ..backends.base import BackendError, SynthesisParams
 from ..backends.irodori.backend import IrodoriBackend, voice_id_for
 from ..synthesis.steps.resolve_seed import resolve_voice_seed
 from .reference import SEED_REFERENCE_TEXT, save_reference_wavs
 from .seed_profile import apply_seed_expression_profile
-from .store import VoicePreset, VoicePresetStore, VoiceStyleDef
+from .seed_source import build_seed_style, create_seed_preset, resolve_seed_source
+from .store import VoicePreset, VoicePresetStore
 
 
 def _resolve_text(reference_text: str | None) -> str:
@@ -47,6 +46,7 @@ def bake_seed_reference(
     seed: int,
     caption: str | None,
     reference_text: str | None = None,
+    source_voice_id: str | None = None,
 ) -> list[str]:
     """シードの声を 1 本合成し、参照音声として保存してファイル名を返す。
 
@@ -54,13 +54,8 @@ def bake_seed_reference(
     試聴（/voices/preview-seed）と同じ形で、保存されるのは参照音声だけになる。
     """
 
-    preset = store.create(
-        name=f"__bake_{uuid.uuid4().hex[:8]}",
-        description="参照音声を焼き付けるための一時的な話者",
-        color_key="shu",
-        mode="caption",
-        styles=[VoiceStyleDef(style_id="normal", name="ノーマル", caption=caption)],
-        voice_seed=seed,
+    preset = create_seed_preset(
+        store, seed=seed, caption=caption, source_voice_id=source_voice_id,
     )
 
     try:
@@ -96,6 +91,7 @@ def create_voice_from_seed(
     color_key: str = "shu",
     caption: str | None = None,
     reference_text: str | None = None,
+    source_voice_id: str | None = None,
 ) -> VoicePreset:
     """シードの声を焼き付けた話者を作る。
 
@@ -103,12 +99,14 @@ def create_voice_from_seed(
     なる再現性はシードが担っており、どの値から生まれた声なのかも辿れる。
     """
 
+    source = resolve_seed_source(store, source_voice_id)
     reference_files = bake_seed_reference(
         irodori=irodori,
         store=store,
         seed=seed,
         caption=caption,
         reference_text=reference_text,
+        source_voice_id=source_voice_id,
     )
 
     return store.create(
@@ -117,11 +115,7 @@ def create_voice_from_seed(
         color_key=color_key,
         mode="reference",
         styles=[
-            apply_seed_expression_profile(VoiceStyleDef(
-                style_id="normal",
-                name="ノーマル",
-                caption=caption,
-            ))
+            apply_seed_expression_profile(build_seed_style(source, caption))
         ],
         reference_files=reference_files,
         voice_seed=seed,

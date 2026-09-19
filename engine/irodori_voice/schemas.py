@@ -162,6 +162,7 @@ class VoiceFromSeedRequest(BaseModel):
     """
 
     name: str = Field(..., min_length=1, max_length=80)
+    source_voice_id: str | None = Field(None, min_length=1, max_length=200)
     seed: int = Field(..., ge=0, le=2**31 - 1)
     description: str = Field("", max_length=300)
     color_key: str = Field("shu", min_length=1, max_length=40)
@@ -182,6 +183,7 @@ class SeedPreviewRequest(BaseModel):
     既定文は焼き付けに使う文と同じで、試聴した直後に作れば同じ音がそのまま参照になる。
     """
 
+    source_voice_id: str | None = Field(None, min_length=1, max_length=200)
     seed: int = Field(..., ge=0, le=2**31 - 1)
     text: str = Field(SEED_REFERENCE_TEXT, min_length=1, max_length=MAX_SEED_PREVIEW_LENGTH)
     caption: str | None = Field(None, max_length=MAX_CAPTION_LENGTH)

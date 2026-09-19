@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 import { api } from "../../lib/api";
 import { messageOf } from "../../lib/errors";
-import type { SeedPreview, SeedVoiceRequest } from "../../lib/types";
+import type { SeedPreview, SeedVoiceRequest, Voice } from "../../lib/types";
 import { Button } from "../ui/Button";
 import { TextField } from "../ui/Field";
 import { CaptionField } from "./CaptionField";
@@ -23,13 +23,15 @@ function randomSeed(): number {
 type Preview = { url: string; meta: SeedPreview };
 
 type Props = {
+  sources: Voice[];
   busy: boolean;
   onSubmit: (payload: SeedVoiceRequest) => void;
   onNotify: (kind: "success" | "error" | "info", message: string) => void;
 };
 
 /** 音声モデルを持たなくても話者を作れる経路。シードで決めた声を参照音声として焼き付ける。 */
-export function SeedForm({ busy, onSubmit, onNotify }: Props) {
+export function SeedForm({ sources, busy, onSubmit, onNotify }: Props) {
+  const [sourceId, setSourceId] = useState("");
   const [name, setName] = useState("");
   const [seed, setSeed] = useState<number>(() => randomSeed());
   const [colorKey, setColorKey] = useState<string>("asagi");
@@ -45,19 +47,21 @@ export function SeedForm({ busy, onSubmit, onNotify }: Props) {
   }, [preview]);
 
   const seedValid = Number.isInteger(seed) && seed >= 0 && seed <= MAX_SEED;
-  const ready = Boolean(name.trim()) && seedValid;
+  const sourceValid = !sourceId || sources.some((voice) => voice.voice_id === sourceId);
+  const ready = Boolean(name.trim()) && seedValid && sourceValid;
 
   /** シードや口調を変えたら、前に聴いた音は別物になる。 */
   const invalidate = () => setPreview(null);
 
   const tryVoice = async () => {
-    if (!seedValid) return;
+    if (!seedValid || !sourceValid) return;
     setTesting(true);
     try {
       const { meta, blob } = await api.previewSeed(
         seed,
         testText.trim() || DEFAULT_TEST_TEXT,
         caption.trim() || null,
+        sourceId || null,
       );
       setPreview({ url: URL.createObjectURL(blob), meta });
     } catch (cause) {
@@ -68,7 +72,7 @@ export function SeedForm({ busy, onSubmit, onNotify }: Props) {
   };
 
   return (
-    <div className="flex flex-col gap-4">
+    <fieldset disabled={busy || testing} className="flex min-w-0 flex-col gap-4">
       <p className="text-label leading-relaxed text-paper-400">
         シード値で声を決めて、その声を参照音声として焼き付けます。音声モデルが 1 つも無くても作れます。
         下の「この声を試す」で聴いた音がそのまま話者の声になるため、気に入った音が出たら、
@@ -124,7 +128,10 @@ export function SeedForm({ busy, onSubmit, onNotify }: Props) {
             <TextField
               label="試す文"
               value={testText}
-              onChange={(event) => setTestText(event.target.value)}
+              onChange={(event) => {
+                setTestText(event.target.value);
+                invalidate();
+              }}
               placeholder={DEFAULT_TEST_TEXT}
             />
           </div>
@@ -133,7 +140,7 @@ export function SeedForm({ busy, onSubmit, onNotify }: Props) {
             className="shrink-0 px-4 py-2"
             icon={<Play className="h-3.5 w-3.5" />}
             onClick={() => void tryVoice()}
-            disabled={!seedValid || busy}
+            disabled={!seedValid || !sourceValid || busy}
             busy={testing}
           >
             {testing ? "合成しています…" : "この声を試す"}
@@ -155,19 +162,27 @@ export function SeedForm({ busy, onSubmit, onNotify }: Props) {
           setCaption(next);
           invalidate();
         }}
-        includeVoiceTemplates
+        sourceSelection={{
+          voices: sources,
+          value: sourceId,
+          onChange: (next) => {
+            setSourceId(next);
+            invalidate();
+          },
+        }}
         hint="読み上げ全体にかかる指定です。焼き付ける声にも反映されるため、変えると声そのものが変わります。試聴にも同じ指定が入ります。"
       />
 
       <Button
         variant="primary"
         className="self-start px-4 py-2"
-        disabled={!ready}
+        disabled={!ready || testing}
         busy={busy}
         onClick={() =>
           onSubmit({
             name: name.trim(),
             seed,
+            source_voice_id: sourceId || null,
             color_key: colorKey,
             description: `シード ${seed} から作った話者`,
             caption: caption.trim() || null,
@@ -177,6 +192,6 @@ export function SeedForm({ busy, onSubmit, onNotify }: Props) {
       >
         {busy ? "声を焼き付けています…" : "このシードで話者を作る"}
       </Button>
-    </div>
+    </fieldset>
   );
 }

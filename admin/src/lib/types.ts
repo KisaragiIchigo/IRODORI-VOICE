@@ -136,6 +136,7 @@ export type SeedPreview = {
 };
 
 export type SeedVoiceRequest = {
+  source_voice_id?: string | null;
   name: string;
   /** 0 〜 2147483647。この値から声が決まる。 */
   seed: number;

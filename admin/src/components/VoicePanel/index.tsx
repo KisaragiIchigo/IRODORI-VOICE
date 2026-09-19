@@ -122,7 +122,7 @@ export function VoicePanel({ voices, loading, error, reload, onNotify }: Props) 
               />
             </Tabs.Content>
             <Tabs.Content value="seed" className="focus-visible:outline-none">
-              <SeedForm busy={busy} onSubmit={fromSeed} onNotify={onNotify} />
+              <SeedForm sources={voices.filter((voice) => voice.backend_id === "irodori")} busy={busy} onSubmit={fromSeed} onNotify={onNotify} />
             </Tabs.Content>
           </CardBody>
         </Tabs.Root>

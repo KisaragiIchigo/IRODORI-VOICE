@@ -93,11 +93,12 @@ export const api = {
     seed: number,
     text: string,
     caption: string | null,
+    sourceVoiceId: string | null = null,
   ): Promise<{ meta: SeedPreview; blob: Blob }> => {
     const response = await fetch(`${API}/voices/preview-seed`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ seed, text, caption }),
+      body: JSON.stringify({ seed, text, caption, source_voice_id: sourceVoiceId }),
     });
     if (!response.ok) {
       throw new EngineError(

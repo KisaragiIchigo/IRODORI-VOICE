@@ -45,6 +45,7 @@ def create_voice_from_seed(request: Request, payload: VoiceFromSeedRequest) -> V
             color_key=payload.color_key,
             caption=(payload.caption or "").strip() or None,
             reference_text=payload.reference_text,
+            source_voice_id=payload.source_voice_id,
         )
     except BackendError as exc:
         raise HTTPException(

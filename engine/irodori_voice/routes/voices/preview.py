@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import base64
 import json
-import uuid
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
@@ -13,7 +12,7 @@ from ...analysis import estimate_pitch
 from ...backends.base import BackendError, SynthesisParams
 from ...backends.irodori.backend import voice_id_for
 from ...schemas import SeedPreviewRequest
-from ...voices.store import VoiceStyleDef
+from ...voices.seed_source import create_seed_preset
 from .shared import engine_state
 
 router = APIRouter(tags=["voices"])
@@ -33,22 +32,13 @@ def preview_seed(request: Request, payload: SeedPreviewRequest) -> Response:
     if state.store is None or state.irodori is None or state.service is None:
         raise HTTPException(status_code=503, detail="エンジンが初期化されていません。")
 
-    preset = state.store.create(
-        name=f"__preview_{uuid.uuid4().hex[:8]}",
-        description="試聴のための一時的な話者",
-        color_key="shu",
-        mode="caption",
-        styles=[
-            VoiceStyleDef(
-                style_id="normal",
-                name="ノーマル",
-                caption=(payload.caption or "").strip() or None,
-            )
-        ],
-        voice_seed=payload.seed,
-    )
-
+    preset = None
     try:
+        preset = create_seed_preset(
+            state.store, seed=payload.seed,
+            caption=(payload.caption or "").strip() or None,
+            source_voice_id=payload.source_voice_id,
+        )
         # service.synthesize は (結果, キャッシュヒットか) を返す。
         result, _cached = state.service.synthesize(
             SynthesisParams(
@@ -63,7 +53,8 @@ def preview_seed(request: Request, payload: SeedPreviewRequest) -> Response:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         # 合成が失敗しても一時の話者は残さない。
-        state.store.delete(preset.preset_id)
+        if preset is not None:
+            state.store.delete(preset.preset_id)
 
     wav = audio_utils.encode_wav_stereo(result.samples, sample_rate=result.sample_rate)
 

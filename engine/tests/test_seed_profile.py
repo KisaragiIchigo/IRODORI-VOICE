@@ -160,6 +160,95 @@ class SeedProfileTests(unittest.TestCase):
         self.assertEqual(result.styles[0].cfg_scale_caption, 5.0)
         self.assertEqual(result.styles[0].cfg_scale_speaker, 2.0)
 
+    def test_seed_sources_copy_style_without_copying_voice_identity(self):
+        from irodori_voice.voices.seed_source import create_seed_preset
+        store = VoicePresetStore([])
+        for mode in ("caption", "reference", "embed"):
+            with self.subTest(mode=mode):
+                source = store.create(
+                    name="元の声", description="", color_key="shu", mode=mode,
+                    styles=[VoiceStyleDef(style_id="base", name="基本", caption="落ち着いた声", num_steps=24)],
+                    reference_files=["参照.wav"] if mode == "reference" else [],
+                    speaker_embed_file="声.pt" if mode == "embed" else None, voice_seed=99,
+                )
+                before = source.to_json()
+                temporary = create_seed_preset(store, seed=0, caption=None, source_voice_id=f"irodori:{source.preset_id}")
+                self.assertEqual(temporary.mode, "caption")
+                self.assertEqual(temporary.reference_files, [])
+                self.assertIsNone(temporary.speaker_embed_file)
+                self.assertEqual(temporary.voice_seed, 0)
+                self.assertEqual(temporary.styles[0].caption, "落ち着いた声")
+                self.assertEqual(temporary.styles[0].num_steps, 80)
+                backend = object.__new__(IrodoriBackend)
+                backend._settings = EngineSettings()
+                backend._reference_cache = Mock()
+                request = backend._build_request(
+                    params=SynthesisParams(text="確認です。", voice_id=f"irodori:{temporary.preset_id}"),
+                    preset=temporary, style=temporary.styles[0], runtime=None,
+                )
+                self.assertTrue(request.no_ref)
+                self.assertEqual(request.seed, 0)
+                self.assertEqual(request.caption, "落ち着いた声")
+                self.assertEqual(request.num_steps, 80)
+                self.assertEqual(request.cfg_scale_text, 2.0)
+                self.assertIsNone(request.ref_embed)
+                backend._reference_cache.resolve.assert_not_called()
+                temporary.styles[0].caption = "別の指示"
+                temporary.reference_files.append("追加.wav")
+                self.assertEqual(source.to_json(), before)
+                overridden = create_seed_preset(store, seed=1, caption="明るい声", source_voice_id=f"irodori:{source.preset_id}")
+                self.assertEqual(overridden.styles[0].caption, "明るい声")
+
+    def test_seed_source_default_and_invalid_ids(self):
+        from irodori_voice.voices.seed_source import create_seed_preset
+        from irodori_voice.backends.base import BackendError
+        store = VoicePresetStore([])
+        temporary = create_seed_preset(store, seed=0, caption=None)
+        self.assertEqual((temporary.mode, temporary.voice_seed, temporary.reference_files), ("caption", 0, []))
+        request = self.request(temporary.styles[0], reference=False, text="確認です。", design_steps=8)
+        self.assertEqual((request.num_steps, request.cfg_scale_text), (80, 2.0))
+        self.assertIsNone(request.caption)
+        for source_id in ("aivm:test", "irodori:missing"):
+            with self.assertRaises(BackendError):
+                create_seed_preset(store, seed=0, caption=None, source_voice_id=source_id)
+
+    def test_preview_and_save_use_same_source_and_clean_up_on_failure(self):
+        from types import SimpleNamespace
+        from irodori_voice.routes.voices.preview import preview_seed
+        from irodori_voice.schemas import SeedPreviewRequest
+        from irodori_voice.backends.base import BackendError
+        from fastapi import HTTPException
+        store = VoicePresetStore([])
+        source = store.create(
+            name="元の声", description="", color_key="shu", mode="reference", voice_seed=99,
+            styles=[VoiceStyleDef(style_id="base", name="基本", caption="低い声")], reference_files=["参照.wav"],
+        )
+        captured = []
+        def fail(params):
+            preset = store.get(params.voice_id.removeprefix("irodori:"))
+            captured.append((preset.mode, preset.reference_files, preset.voice_seed, preset.styles[0].to_json()))
+            raise BackendError("合成失敗の検証")
+        backend = Mock()
+        backend.synthesize.side_effect = fail
+        service = Mock()
+        service.synthesize.side_effect = fail
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(engine=SimpleNamespace(
+            store=store, irodori=backend, service=service,
+        ))))
+        source_id = f"irodori:{source.preset_id}"
+        before = [preset.preset_id for preset in store.list()]
+        with self.assertRaises(HTTPException) as error:
+            preview_seed(request, SeedPreviewRequest(seed=0, source_voice_id=source_id))
+        self.assertEqual(error.exception.status_code, 400)
+        with self.assertRaises(BackendError):
+            seed_bake.create_voice_from_seed(irodori=backend, store=store, name="保存", seed=0, source_voice_id=source_id)
+        self.assertEqual(captured[0], captured[1])
+        self.assertEqual(captured[0][:3], ("caption", [], 0))
+        self.assertEqual([preset.preset_id for preset in store.list()], before)
+        with self.assertRaises(HTTPException) as error:
+            preview_seed(request, SeedPreviewRequest(seed=0, source_voice_id="irodori:missing"))
+        self.assertEqual(error.exception.status_code, 400)
+
     def test_api_accepts_and_validates_style_steps(self):
         from pydantic import ValidationError
         from irodori_voice.schemas import VoiceUpdateRequest
