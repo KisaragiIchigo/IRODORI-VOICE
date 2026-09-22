@@ -53,6 +53,7 @@ def voice_out(voice) -> VoiceOut:
         is_builtin=voice.is_builtin,
         voice_seed=voice.voice_seed,
         has_reference=voice.has_reference,
+        memo=voice.memo,
     )
 
 

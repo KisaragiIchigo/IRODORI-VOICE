@@ -38,6 +38,7 @@ from ..base import (
 )
 from ...voicevox.user_dict import shared_user_dict
 from .expression_caption import build_expression_caption
+from .duration_cap import resolve_max_seconds
 from .expression_text import append_expression_pause
 from .pronunciation import apply_pronunciation
 from .reading_overrides import apply_reading_overrides
@@ -208,6 +209,7 @@ class IrodoriBackend:
                     is_builtin=preset.builtin,
                     voice_seed=preset.voice_seed,
                     has_reference=preset.mode == "reference" and bool(preset.reference_files),
+                    memo=preset.memo,
                 )
             )
         return voices
@@ -318,6 +320,13 @@ class IrodoriBackend:
             seed=preset.voice_seed if preset.voice_seed is not None else params.seed,
             num_steps=params.steps if params.steps is not None else num_steps,
         )
+
+        # 読み上げる長さは先に予測され、そのフレーム数が最後まで埋められる。短い本文へ
+        # 長すぎる尺が割り当てられると、モデルが余りを埋めて本文に無い音を出す。予測は
+        # そのまま使い、本文の長さから決めた上限で走りすぎだけを止める。
+        max_seconds = resolve_max_seconds(text, duration_scale=duration_scale)
+        if max_seconds is not None:
+            request.max_seconds = max_seconds
 
         if preset.mode == "caption":
             request.no_ref = True

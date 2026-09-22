@@ -17,12 +17,20 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from pathlib import Path
 
 from ..paths import user_data_root
 
 # アクセント句の境界を表す内部マーカー。合成テキストには残さない。
 PHRASE_MARKER = "|"
+
+# 半角を全角へ寄せる対応表。読み方＆アクセント辞書は表記を全角で保存する（エディタが
+# 入力を全角へ畳む）ため、そこから同時登録した語は全角で分割辞書へ入る。本文は半角で
+# 書かれるのが普通で、字の幅が違うだけで当たらないのを避ける。
+_FULLWIDTH_TABLE = {code: code + 0xFEE0 for code in range(0x21, 0x7F)}
+_FULLWIDTH_TABLE[0x20] = 0x3000
 
 # 利用者が「間を空けずに区切る」意図で書く文字。すべてマーカーへ畳む。
 _MARKER_SOURCES = (" ", "\u3000", "_", "\uff3f")
@@ -119,12 +127,35 @@ def _fold_markers(replacement: str) -> str:
     return replacement
 
 
+def _target_pattern(target: str) -> re.Pattern[str]:
+    """本文の上で対象語を探す形。全角と半角の書き分けを吸収する。
+
+    照合する形は 3 つ。辞書に書かれたそのまま、NFKC で半角へ畳んだ形、英数記号を全角へ
+    寄せた形。読み方＆アクセント辞書からの同時登録は表記が全角で入るため、半角で書かれた
+    本文へ当てるには畳んだ形が要る。手で ``GUI=_GUI_`` と書いた辞書を全角の本文へ当てる
+    場合はその逆になる。大小文字は ``reading_overrides`` と同じく区別しない。
+
+    3 つをまとめて 1 度だけ走らせる。形ごとに ``replace`` を重ねると、差し込んだ置換後の
+    文字列を次の形が拾い直し、マーカーが増える。
+    """
+
+    forms = [target]
+    for form in (
+        unicodedata.normalize("NFKC", target),
+        target.translate(_FULLWIDTH_TABLE),
+    ):
+        if form and form not in forms:
+            forms.append(form)
+    return re.compile("|".join(re.escape(form) for form in forms), flags=re.IGNORECASE)
+
+
 def apply_word_splits(text: str) -> str:
     """登録された単語を、区切りを入れた表記へ置き換える。"""
 
     for target, replacement in load_splits().items():
-        if target in text:
-            text = text.replace(target, _fold_markers(replacement))
+        folded = _fold_markers(replacement)
+        # 置換後の文字列は関数で渡す。\1 のような字を後方参照として解釈させない。
+        text = _target_pattern(target).sub(lambda _: folded, text)
     return text
 
 

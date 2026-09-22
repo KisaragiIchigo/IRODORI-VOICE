@@ -38,13 +38,16 @@ export function VoicePanel({ voices, loading, error, reload, onNotify }: Props) 
     [voices],
   );
 
-  const run = async (task: () => Promise<string>) => {
+  /** 話者を変える操作の共通処理。成否を返すのは、失敗したときに入力を残す画面があるため。 */
+  const run = async (task: () => Promise<string>): Promise<boolean> => {
     setBusy(true);
     try {
       onNotify("success", await task());
       await reload();
+      return true;
     } catch (cause) {
       onNotify("error", messageOf(cause, "処理に失敗しました。"));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -171,6 +174,20 @@ export function VoicePanel({ voices, loading, error, reload, onNotify }: Props) 
             }
             onPickIcon={(file) => pickIcon(voice, file)}
             onClearIcon={() => clearIcon(voice)}
+            onSaveMemo={(memo) =>
+              run(async () => {
+                await api.updateVoice(voice.voice_id, { memo });
+                return memo
+                  ? `${voice.name} のメモを保存しました。`
+                  : `${voice.name} のメモを消しました。`;
+              })
+            }
+            onAddStyles={() =>
+              void run(async () => {
+                const updated = await api.addExpressionStyles(voice.voice_id);
+                return `${voice.name} に ${updated.styles.length} 種類のスタイルを足しました。エディタには、この画面を閉じたときに反映されます。`;
+              })
+            }
             onBake={() =>
               void run(async () => {
                 await api.bakeVoiceReference(voice.voice_id);

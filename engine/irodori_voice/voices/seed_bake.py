@@ -25,18 +25,108 @@
 
 from __future__ import annotations
 
+import uuid
+
 from .. import audio as audio_utils
 from ..backends.base import BackendError, SynthesisParams
 from ..backends.irodori.backend import IrodoriBackend, voice_id_for
 from ..synthesis.steps.resolve_seed import resolve_voice_seed
-from .reference import SEED_REFERENCE_TEXT, save_reference_wavs
+from .expression_styles import build_expression_styles, extend_with_expression_styles
+from .reference import (
+    REFERENCE_SPEAKER_CFG,
+    SEED_FOLLOWUP_TEXTS,
+    SEED_REFERENCE_LEAD_SECONDS,
+    SEED_REFERENCE_MAX_SECONDS,
+    SEED_REFERENCE_TEXT,
+    remove_reference_wavs,
+    save_reference_wavs,
+)
 from .seed_profile import apply_seed_expression_profile
 from .seed_source import build_seed_style, create_seed_preset, resolve_seed_source
-from .store import VoicePreset, VoicePresetStore
+from .store import VoicePreset, VoicePresetStore, VoiceStyleDef
 
 
 def _resolve_text(reference_text: str | None) -> str:
     return (reference_text or "").strip() or SEED_REFERENCE_TEXT
+
+
+def _synthesize_reference(
+    irodori: IrodoriBackend, preset: VoicePreset, text: str
+) -> tuple[bytes, float]:
+    """一時の話者へ 1 文読ませ、wav のバイト列とその長さを返す。"""
+
+    output = irodori.synthesize(
+        SynthesisParams(
+            # 無音の付け外しはサービス層の仕事で、ここはバックエンドを直接呼ぶため効かない。
+            # 助走はこのあと自分で足す。
+            text=text,
+            voice_id=voice_id_for(preset),
+            style_id="normal",
+            pre_silence=0.0,
+            post_silence=0.0,
+        )
+    )
+    if output.samples.size == 0:
+        raise BackendError("参照音声を合成できませんでした。読ませる文を変えてお試しください。")
+
+    # 助走の無い参照を手本にすると、生成音声が 0 サンプル目から鳴り出して破裂音になる。
+    # 末尾は手本として使わないので足さない。
+    samples = audio_utils.pad_silence(
+        output.samples,
+        sample_rate=output.sample_rate,
+        pre_seconds=SEED_REFERENCE_LEAD_SECONDS,
+        post_seconds=0.0,
+    )
+    return (
+        audio_utils.encode_wav(samples, sample_rate=output.sample_rate),
+        samples.size / float(output.sample_rate),
+    )
+
+
+def _bake_followup_references(
+    *,
+    irodori: IrodoriBackend,
+    store: VoicePresetStore,
+    seed: int,
+    first_reference: str,
+    used_seconds: float,
+) -> list[bytes]:
+    """固定済みの声で参照音声を足し、wav のバイト列を返す。
+
+    1 本目を参照に持つ一時の話者を作って読ませる。この時点で声は決まっているため、
+    何本合成しても同じ人物になる。上限に達したらそこで打ち切る。
+    """
+
+    preset = store.create(
+        name=f"__seed_ref_{uuid.uuid4().hex[:8]}",
+        description="参照音声を足すための一時的な話者",
+        color_key="shu",
+        mode="reference",
+        styles=[
+            VoiceStyleDef(
+                style_id="normal",
+                name="ノーマル",
+                cfg_scale_speaker=REFERENCE_SPEAKER_CFG,
+            )
+        ],
+        reference_files=[first_reference],
+        voice_seed=seed,
+    )
+
+    wavs: list[bytes] = []
+    remaining = SEED_REFERENCE_MAX_SECONDS - used_seconds
+    try:
+        for text in SEED_FOLLOWUP_TEXTS:
+            if remaining <= 0.0:
+                break
+            wav, seconds = _synthesize_reference(irodori, preset, text)
+            wavs.append(wav)
+            remaining -= seconds
+    finally:
+        # 合成が失敗しても一時の話者は残さない。
+        store.delete(preset.preset_id)
+
+    return wavs
 
 
 def bake_seed_reference(
@@ -48,10 +138,12 @@ def bake_seed_reference(
     reference_text: str | None = None,
     source_voice_id: str | None = None,
 ) -> list[str]:
-    """シードの声を 1 本合成し、参照音声として保存してファイル名を返す。
+    """シードの声を参照音声として焼き付け、保存したファイル名を返す。
 
-    合成には話者の定義が要るため、一時の話者を作って使い、終わったら必ず消す。
-    試聴（/voices/preview-seed）と同じ形で、保存されるのは参照音声だけになる。
+    1 本目は参照を持たない一時の話者で合成する。これでシードの声が決まるので、
+    2 本目からはその 1 本目を参照に据え、同じ声のまま読ませて本数を揃える。
+    合成には話者の定義が要るため、どちらも一時の話者を作って使い、終わったら必ず消す。
+    試聴（/voices/preview-seed）が聴かせるのは 1 本目と同じ音になる。
     """
 
     preset = create_seed_preset(
@@ -59,26 +151,28 @@ def bake_seed_reference(
     )
 
     try:
-        output = irodori.synthesize(
-            SynthesisParams(
-                text=_resolve_text(reference_text),
-                voice_id=voice_id_for(preset),
-                style_id="normal",
-                # 参照に必要なのは声が鳴っている区間だけ。前後の無音はそのぶん
-                # latent を食うので付けない。
-                pre_silence=0.0,
-                post_silence=0.0,
-            )
+        first_wav, first_seconds = _synthesize_reference(
+            irodori, preset, _resolve_text(reference_text)
         )
     finally:
         # 合成が失敗しても一時の話者は残さない。
         store.delete(preset.preset_id)
 
-    if output.samples.size == 0:
-        raise BackendError("参照音声を合成できませんでした。読ませる文を変えてお試しください。")
+    names = save_reference_wavs([first_wav])
+    try:
+        followups = _bake_followup_references(
+            irodori=irodori,
+            store=store,
+            seed=seed,
+            first_reference=names[0],
+            used_seconds=first_seconds,
+        )
+    except Exception:
+        # 2 本目以降で失敗したら、1 本目を置き去りにしない。
+        remove_reference_wavs(names)
+        raise
 
-    wav = audio_utils.encode_wav(output.samples, sample_rate=output.sample_rate)
-    return save_reference_wavs([wav])
+    return names + save_reference_wavs(followups)
 
 
 def create_voice_from_seed(
@@ -92,11 +186,15 @@ def create_voice_from_seed(
     caption: str | None = None,
     reference_text: str | None = None,
     source_voice_id: str | None = None,
+    with_emotion_styles: bool = True,
 ) -> VoicePreset:
     """シードの声を焼き付けた話者を作る。
 
     シードは話者へ残す。声そのものは参照音声が決めるようになるが、同じ文なら同じ音に
     なる再現性はシードが担っており、どの値から生まれた声なのかも辿れる。
+
+    焼き付けたあとは借りた声と同じ mode="reference" の話者になるため、喋り方のスタイルも
+    同じ一覧を持たせる。``with_emotion_styles`` を落とすとノーマルだけになる。
     """
 
     source = resolve_seed_source(store, source_voice_id)
@@ -109,14 +207,13 @@ def create_voice_from_seed(
         source_voice_id=source_voice_id,
     )
 
+    normal = apply_seed_expression_profile(build_seed_style(source, caption))
     return store.create(
         name=name,
         description=description,
         color_key=color_key,
         mode="reference",
-        styles=[
-            apply_seed_expression_profile(build_seed_style(source, caption))
-        ],
+        styles=build_expression_styles(normal, with_emotion=with_emotion_styles),
         reference_files=reference_files,
         voice_seed=seed,
     )
@@ -159,7 +256,12 @@ def bake_existing_voice(
         reference_text=reference_text,
     )
 
-    styles = [apply_seed_expression_profile(definition).to_json() for definition in preset.styles]
+    # 声が固定された以上、借りた声と同じ喋り分けができる。既にあるスタイルは
+    # そのまま残し、足りない顔ぶれだけを補う。
+    styles = [
+        apply_seed_expression_profile(definition).to_json()
+        for definition in extend_with_expression_styles(preset.styles)
+    ]
 
     return store.update(
         preset_id,

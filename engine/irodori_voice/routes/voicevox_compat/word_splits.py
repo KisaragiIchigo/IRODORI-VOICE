@@ -4,9 +4,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from ...voicevox.word_splits import load_splits, save_splits
+from .shared import invalidate_audio_cache
 
 router = APIRouter(tags=["voicevox-compat"])
 
@@ -19,8 +20,13 @@ def get_word_splits() -> dict[str, str]:
 
 
 @router.post("/word_splits")
-def update_word_splits(splits: dict[str, str]) -> dict:
-    """フレーズ分割辞書を書き換える。"""
+def update_word_splits(request: Request, splits: dict[str, str]) -> dict:
+    """フレーズ分割辞書を書き換える。
+
+    合成キャッシュの鍵は分割を当てる前の生の本文なので、区切りを変えても鍵が変わらない。
+    捨てないと、登録したのに前の区切りで作った音がそのまま再生される。
+    """
 
     save_splits(splits)
+    invalidate_audio_cache(request)
     return {"status": "ok"}

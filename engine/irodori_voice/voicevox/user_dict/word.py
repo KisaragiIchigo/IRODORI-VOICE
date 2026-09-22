@@ -74,6 +74,24 @@ def count_moras(pronunciation: str) -> int:
     return max(1, len(_MORA_PATTERN.findall(pronunciation)))
 
 
+# 辞書へ入れてはいけない文字。改行・タブ・全角空白と制御文字。
+_FORBIDDEN_CHARS = re.compile(r"[\r\n\t\u3000\x00-\x1f\x7f]")
+
+
+def normalize_field(value: str) -> str:
+    """辞書へ入れる文字列から、改行と制御文字を落として前後を詰める。
+
+    表記へ改行が混ざると CSV が途中で折れ、OpenJTalk がその行を捨てる。実際に
+    「翌々月末」の表記へ改行が入り、壊れた 1 件と、折れた先の空行を巻き添えにした
+    1 件が読み込み時に飛ばされていた。画面には登録済みとして並ぶため、どの語が
+    効いていないのか辿れない。
+
+    読み込み時にも掛かるので、既に壊れて保存されている語も次の適用で直る。
+    """
+
+    return _FORBIDDEN_CHARS.sub("", str(value)).strip()
+
+
 @dataclass
 class UserDictWord:
     surface: str
@@ -91,6 +109,12 @@ class UserDictWord:
     accent_type: int
     mora_count: int
     accent_associative_rule: str = "*"
+
+    def __post_init__(self) -> None:
+        # 読み込み・生成のどちらの経路でも通るため、ここへ置く。
+        self.surface = normalize_field(self.surface)
+        self.pronunciation = normalize_field(self.pronunciation)
+        self.yomi = normalize_field(self.yomi)
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -110,6 +134,13 @@ class UserDictWord:
         word_type: WordType = "PROPER_NOUN",
         priority: int = DEFAULT_PRIORITY,
     ) -> UserDictWord:
+        surface = normalize_field(surface)
+        pronunciation = normalize_field(pronunciation)
+        if not surface:
+            raise ValueError("表記が空です。")
+        if not pronunciation:
+            raise ValueError("読みが空です。")
+
         context_id, pos, detail_1, detail_2, detail_3 = _WORD_TYPE_TABLE.get(
             word_type, _WORD_TYPE_TABLE["PROPER_NOUN"]
         )

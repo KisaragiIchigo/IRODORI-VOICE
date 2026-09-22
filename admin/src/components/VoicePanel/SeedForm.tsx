@@ -8,6 +8,7 @@ import { Button } from "../ui/Button";
 import { TextField } from "../ui/Field";
 import { CaptionField } from "./CaptionField";
 import { ColorPicker } from "./ColorPicker";
+import { EmotionStyleSwitch } from "./EmotionStyleSwitch";
 import { SeedPreviewPanel } from "./SeedPreviewPanel";
 
 /** エンジンが受け付ける上限。schemas.py の VoiceFromSeedRequest と対を成す。 */
@@ -36,6 +37,7 @@ export function SeedForm({ sources, busy, onSubmit, onNotify }: Props) {
   const [seed, setSeed] = useState<number>(() => randomSeed());
   const [colorKey, setColorKey] = useState<string>("asagi");
   const [caption, setCaption] = useState("");
+  const [withEmotion, setWithEmotion] = useState(true);
   const [testText, setTestText] = useState(DEFAULT_TEST_TEXT);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [testing, setTesting] = useState(false);
@@ -170,8 +172,10 @@ export function SeedForm({ sources, busy, onSubmit, onNotify }: Props) {
             invalidate();
           },
         }}
-        hint="読み上げ全体にかかる指定です。焼き付ける声にも反映されるため、変えると声そのものが変わります。試聴にも同じ指定が入ります。"
+        hint="ノーマルのスタイルに入る話し方の指定です。焼き付ける声にも反映されるため、変えると声そのものが変わります。試聴にも同じ指定が入ります。喜怒哀楽のスタイルは、それぞれ固有の指示を持っているため変わりません。"
       />
+
+      <EmotionStyleSwitch checked={withEmotion} onChange={setWithEmotion} />
 
       <Button
         variant="primary"
@@ -187,6 +191,7 @@ export function SeedForm({ sources, busy, onSubmit, onNotify }: Props) {
             description: `シード ${seed} から作った話者`,
             caption: caption.trim() || null,
             reference_text: testText.trim() || null,
+            with_emotion_styles: withEmotion,
           })
         }
       >

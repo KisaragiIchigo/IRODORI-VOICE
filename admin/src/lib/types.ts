@@ -38,6 +38,17 @@ export type Voice = {
   voice_seed: number | null;
   /** 実際に参照音声を持っているか。capabilities.reference_audio は対応可否なので別物。 */
   has_reference: boolean;
+  /** 利用者が書いた覚え書き。合成には使わず、この画面にだけ出る。 */
+  memo: string;
+};
+
+/** 話者の書き換え。触る項目だけを送る。 */
+export type VoiceUpdate = {
+  name?: string;
+  description?: string;
+  /** 空文字はメモを消す意味になる。未指定（省略）と区別される。 */
+  memo?: string;
+  color_key?: string;
 };
 
 export type ModelSpeaker = {
@@ -146,6 +157,8 @@ export type SeedVoiceRequest = {
   caption?: string | null;
   /** 焼き付けるときに読ませる文。試聴に使った文を渡すと、聴いた声がそのまま残る。 */
   reference_text?: string | null;
+  /** 喜怒哀楽のスタイルも作るか。声を借りるときと同じ顔ぶれが付く。 */
+  with_emotion_styles?: boolean;
 };
 
 export type CloneRequest = {

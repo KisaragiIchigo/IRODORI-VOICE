@@ -60,6 +60,8 @@ class VoiceInfo:
     # 実際に参照音声を持っているか。``capabilities.reference_audio`` は
     # 「受け付けられるか」を表すので、持っているかどうかとは別に持つ。
     has_reference: bool = False
+    # 利用者が話者へ書き添えた覚え書き。合成には使わず、管理画面の一覧にだけ出る。
+    memo: str = ""
 
 
 @dataclass(frozen=True)

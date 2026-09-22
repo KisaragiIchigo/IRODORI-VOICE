@@ -45,19 +45,32 @@
           <template #sidebar>
             <div class="list-header">
               <div class="list-title">単語一覧</div>
-              <BaseButton
-                label="追加"
-                icon="add"
-                @click="selectNewWord"
-              />
+              <BaseButton label="追加" icon="add" @click="selectNewWord" />
+            </div>
+            <div class="search">
+              <BaseTextField
+                v-model="searchQuery"
+                ariaLabel="単語を検索"
+                placeholder="単語・分割後の文字列で検索"
+                :hasError="searchError != undefined"
+              >
+                <template #error>{{ searchError }}</template>
+              </BaseTextField>
+              <div class="search-row">
+                <BaseCheckbox
+                  v-model:checked="searchUsesRegex"
+                  label="正規表現"
+                />
+                <div class="search-count">{{ searchCount }}</div>
+              </div>
             </div>
             <div class="list">
               <BaseListItem
-                v-for="(replace, target) in splits"
+                v-for="[target, replace] in filteredSplits"
                 :key="target"
                 :selected="currentWord === target"
-                @click="currentWord = String(target)"
-                @mouseover="hoveredKey = String(target)"
+                @click="currentWord = target"
+                @mouseover="hoveredKey = target"
                 @mouseleave="hoveredKey = undefined"
               >
                 <div class="listitem">
@@ -69,17 +82,26 @@
                     v-if="hoveredKey === target || currentWord === target"
                     icon="delete_outline"
                     label="削除"
-                    @click.stop="deleteSplit(String(target))"
+                    @click.stop="deleteSplit(target)"
                   />
                 </div>
               </BaseListItem>
+              <div v-if="filteredSplits.length === 0" class="list-empty">
+                {{
+                  Object.keys(splits).length === 0
+                    ? "まだ単語が登録されていません。"
+                    : "検索に一致する単語がありません。"
+                }}
+              </div>
             </div>
           </template>
 
-          <div class="detail" v-if="currentWord !== undefined">
+          <div v-if="currentWord != undefined" class="detail">
             <div class="inner">
-              <div class="title">{{ isNew ? '新しい単語を追加' : '単語を編集' }}</div>
-              
+              <div class="title">
+                {{ isNew ? "新しい単語を追加" : "単語を編集" }}
+              </div>
+
               <div class="form-row q-mt-md">
                 <h3 class="headline">対象の単語（変換前）</h3>
                 <div class="subtext text-caption">例: 台湾証券取引所</div>
@@ -94,7 +116,7 @@
               <div class="form-row q-mt-md">
                 <h3 class="headline">分割後の文字列（変換後）</h3>
                 <div class="subtext text-caption">
-                  ・間に「読点（、）」を入れると、無音のポーズ（息継ぎ）が入ります。<br/>
+                  ・間に「読点（、）」を入れると、無音のポーズ（息継ぎ）が入ります。<br />
                   ・間に「アンダースコア（_）」を入れると、ポーズを空けずにフレーズだけを分割します。
                 </div>
                 <BaseTextField
@@ -107,14 +129,16 @@
               <div class="q-mt-xl">
                 <BaseButton
                   label="保存"
-                  @click="saveCurrentSplit"
                   :disabled="!editTarget || !editReplace"
+                  @click="saveCurrentSplit"
                 />
               </div>
             </div>
           </div>
           <div v-else class="detail flex flex-center">
-            <div class="text-h6 subtext">単語を選択するか、新しく追加してください。</div>
+            <div class="text-h6 subtext">
+              単語を選択するか、新しく追加してください。
+            </div>
           </div>
         </BaseNavigationView>
       </QPageContainer>
@@ -129,6 +153,7 @@ import BaseButton from "@/components/Base/BaseButton.vue";
 import BaseListItem from "@/components/Base/BaseListItem.vue";
 import BaseIconButton from "@/components/Base/BaseIconButton.vue";
 import BaseTextField from "@/components/Base/BaseTextField.vue";
+import BaseCheckbox from "@/components/Base/BaseCheckbox.vue";
 import { useStore } from "@/store";
 import {
   type WordSplits,
@@ -136,6 +161,7 @@ import {
   readWordSplitsFile,
   sendWordSplits,
 } from "@/domain/wordSplits";
+import { createDictMatcher } from "@/domain/dictSearch";
 
 const props = defineProps<{ dialogOpened: boolean }>();
 const emit = defineEmits(["update:dialogOpened"]);
@@ -153,6 +179,38 @@ const currentWord = ref<string | undefined>();
 const isNew = ref(false);
 const editTarget = ref("");
 const editReplace = ref("");
+const searchQuery = ref("");
+const searchUsesRegex = ref(false);
+
+/** 検索の照合器。書き損じた正規表現はここで受け止める。 */
+const matcher = computed(() =>
+  createDictMatcher(
+    searchQuery.value,
+    searchUsesRegex.value ? "regex" : "text",
+  ),
+);
+
+const searchError = computed(() =>
+  matcher.value.type === "error" ? matcher.value.message : undefined,
+);
+
+/** 一覧に出す単語。単語と分割後の文字列の両方を照合に使う。 */
+const filteredSplits = computed<[string, string][]>(() => {
+  const entries = Object.entries(splits.value);
+  const current = matcher.value;
+  // 正規表現が書き損じの間は絞り込まない。入力の途中で一覧が消えると、何を直せば
+  // よいのか分からなくなる。理由は検索欄の下に出す。
+  if (current.type !== "matcher") return entries;
+  return entries.filter(([target, replace]) =>
+    current.matches([target, replace]),
+  );
+});
+
+const searchCount = computed(() => {
+  const total = Object.keys(splits.value).length;
+  const shown = filteredSplits.value.length;
+  return shown === total ? `${total} 件` : `${shown} / ${total} 件`;
+});
 
 /** 分割辞書のやり取りに使うエンジン。1 つ目のエンジンが辞書の持ち主になる。 */
 const splitEngine = () => store.getters.GET_SORTED_ENGINE_INFOS[0];
@@ -195,6 +253,8 @@ async function saveSplits(newSplits: WordSplits): Promise<boolean> {
 
   try {
     await sendWordSplits(engine, newSplits);
+    // 区切りが変われば読みも変わる。合成済みの音声とクエリを作り直す。
+    await store.actions.INVALIDATE_DICTIONARY_DEPENDENT_AUDIO();
   } catch (e) {
     alertSplit(
       "分割辞書を保存できませんでした",
@@ -233,6 +293,14 @@ async function saveCurrentSplit() {
   // 保存できていないのに選択を移すと、watch が編集中の内容を空へ戻してしまう。
   if (await saveSplits(current)) {
     currentWord.value = editTarget.value;
+    // 絞り込みに一致しない語を保存すると、保存できたのに一覧から消えたように見える。
+    const shown = matcher.value;
+    if (
+      shown.type === "matcher" &&
+      !shown.matches([editTarget.value, editReplace.value])
+    ) {
+      searchQuery.value = "";
+    }
   }
 }
 
@@ -299,6 +367,7 @@ watch(dialogOpened, (newVal) => {
   if (newVal) {
     void loadSplits();
     currentWord.value = undefined;
+    searchQuery.value = "";
   }
 });
 
@@ -336,10 +405,37 @@ watch(currentWord, (target) => {
   @include mixin.headline-2;
 }
 
+.search {
+  display: flex;
+  flex-direction: column;
+  gap: vars.$gap-1;
+  width: 240px;
+  margin-bottom: vars.$padding-1;
+}
+
+.search-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: vars.$gap-1;
+}
+
+.search-count {
+  font-size: 0.75rem;
+  color: var(--color-display);
+  white-space: nowrap;
+}
+
 .list {
   display: flex;
   flex-direction: column;
   width: 240px;
+}
+
+.list-empty {
+  padding: vars.$padding-1;
+  font-size: 0.75rem;
+  color: var(--color-display);
 }
 
 .listitem {

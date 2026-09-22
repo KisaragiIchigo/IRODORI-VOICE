@@ -66,6 +66,9 @@ class VoicePreset:
     speaker_embed_file: str | None = None
     # 参照音声を持たない話者の声を固定する値。None なら話者 ID から導出する。
     voice_seed: int | None = None
+    # 利用者が自分のために書く覚え書き。合成には一切使わず、管理画面にだけ出る。
+    # description は作り方から自動で入る説明なので、書き換えると出どころが消える。
+    memo: str = ""
     portrait_file: str | None = None
     builtin: bool = False
     created_at: str = field(default_factory=_now)
@@ -157,6 +160,7 @@ class VoicePresetStore:
         speaker_embed_file: str | None = None,
         portrait_file: str | None = None,
         voice_seed: int | None = None,
+        memo: str = "",
     ) -> VoicePreset:
         preset = VoicePreset(
             preset_id=f"user-{uuid.uuid4().hex[:12]}",
@@ -169,6 +173,7 @@ class VoicePresetStore:
             speaker_embed_file=speaker_embed_file,
             portrait_file=portrait_file,
             voice_seed=voice_seed,
+            memo=memo,
         )
         with self._lock:
             self._user[preset.preset_id] = preset
@@ -203,6 +208,7 @@ class VoicePresetStore:
             speaker_embed_file=source.speaker_embed_file,
             portrait_file=source.portrait_file,
             voice_seed=source.voice_seed,
+            memo=source.memo,
         )
 
     def delete(self, preset_id: str) -> None:

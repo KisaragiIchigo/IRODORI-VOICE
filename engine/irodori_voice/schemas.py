@@ -15,6 +15,8 @@ from .voices.reference import SEED_REFERENCE_TEXT
 
 MAX_TEXT_LENGTH = 2000
 MAX_CAPTION_LENGTH = 400
+# 話者へ書き添える覚え書きの上限。制作の経緯や使いどころを数行書ける程度に取る。
+MAX_MEMO_LENGTH = 1000
 MAX_REFERENCE_LINE_LENGTH = 200
 # 試聴と焼き付けで読ませる文の上限。長くするほど待ち時間がそのまま伸びる。
 MAX_SEED_PREVIEW_LENGTH = 120
@@ -54,6 +56,8 @@ class VoiceOut(BaseModel):
     is_builtin: bool
     voice_seed: int | None = None
     has_reference: bool = False
+    # 利用者が書いた覚え書き。管理画面でだけ表示し、合成には使わない。
+    memo: str = ""
 
 
 class BackendStatusOut(BaseModel):
@@ -168,6 +172,8 @@ class VoiceFromSeedRequest(BaseModel):
     color_key: str = Field("shu", min_length=1, max_length=40)
     caption: str | None = Field(None, max_length=MAX_CAPTION_LENGTH)
     reference_text: str | None = Field(None, min_length=1, max_length=MAX_SEED_PREVIEW_LENGTH)
+    # 焼き付けたあとは借りた声と同じ参照つきの話者になるため、喋り方のスタイルも揃えられる。
+    with_emotion_styles: bool = True
 
 
 class VoiceBakeReferenceRequest(BaseModel):
@@ -225,6 +231,8 @@ class VoiceCloneFromModelRequest(BaseModel):
 class VoiceUpdateRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=80)
     description: str | None = Field(None, max_length=300)
+    # 空文字は「メモを消す」意味になるため、未指定（None）と区別して受け取る。
+    memo: str | None = Field(None, max_length=MAX_MEMO_LENGTH)
     color_key: str | None = Field(None, min_length=1, max_length=40)
     styles: list[VoiceStyleIn] | None = Field(None, min_length=1, max_length=32)
     voice_seed: int | None = Field(None, ge=0, le=2**31 - 1)

@@ -95,11 +95,20 @@ const reload = () => {
  * 失敗しても操作の邪魔はしない。取り直せないだけで、起動し直せば反映される。
  */
 const reloadCharacters = () => {
-  for (const engineId of store.state.engineIds) {
-    void store.actions.LOAD_CHARACTER({ engineId }).catch(() => {
-      // 閉じたあとの更新なので、握って進む。
-    });
-  }
+  const reload = async () => {
+    await Promise.all(
+      store.state.engineIds.map((engineId) =>
+        store.actions.LOAD_CHARACTER({ engineId }),
+      ),
+    );
+    // 増えた話者は並び順にも既定スタイルにも入っていない。並び順に無い話者は
+    // 一覧の先頭へ回って既定の話者になり、既定スタイルが無いままだと
+    // テキスト欄の追加と複数行の貼り付けが落ちる。取り直しに続けて登録する。
+    await store.actions.REGISTER_NEW_CHARACTERS();
+  };
+  void reload().catch(() => {
+    // 閉じたあとの更新なので、握って進む。
+  });
 };
 </script>
 

@@ -1,4 +1,4 @@
-import { Anchor, Trash2 } from "lucide-react";
+import { Anchor, SmilePlus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import type { Voice } from "../../lib/types";
@@ -7,6 +7,7 @@ import { Badge, ColorDot } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Card, CardBody, CardHeader } from "../ui/Card";
 import { VoiceIcon } from "./VoiceIcon";
+import { VoiceMemo } from "./VoiceMemo";
 
 type Props = {
   voice: Voice;
@@ -17,6 +18,9 @@ type Props = {
   onPickIcon: (file: File) => void;
   onClearIcon: () => void;
   onBake: () => void;
+  /** 保存できたかを返す。失敗したら書きかけを残したままにする。 */
+  onSaveMemo: (memo: string) => Promise<boolean>;
+  onAddStyles: () => void;
 };
 
 export function VoiceCard({
@@ -27,12 +31,24 @@ export function VoiceCard({
   onPickIcon,
   onClearIcon,
   onBake,
+  onSaveMemo,
+  onAddStyles,
 }: Props) {
   const [confirming, setConfirming] = useState(false);
   const hex = VOICE_COLOR_HEX[voice.color_key] ?? VOICE_COLOR_HEX.shu;
   // 参照音声を持たない Irodori-TTS の話者は、読み上げる文の長さで声が動く。
   // 同梱話者は書き換えられないため、声を固定できるのは自分で作った話者だけ。
   const unfixed = voice.backend_id === "irodori" && !voice.has_reference && !voice.is_builtin;
+  // 声が固定されている話者は、借りた声と同じ喋り分けができる。ノーマルしか持って
+  // いないのは、スタイルを付ける前の作り方で作られた話者。
+  // メモの置き場所は話者プリセット。取り込んだモデルの話者はプリセットを持たないため、
+  // 書ける相手は自分で作った Irodori-TTS の話者だけになる。
+  const canMemo = voice.backend_id === "irodori" && !voice.is_builtin;
+  const styleless =
+    voice.backend_id === "irodori" &&
+    voice.has_reference &&
+    !voice.is_builtin &&
+    voice.styles.length <= 1;
 
   return (
     <Card>
@@ -77,6 +93,8 @@ export function VoiceCard({
             <p className="text-label leading-relaxed text-paper-400">{voice.description}</p>
           ) : null}
 
+          {canMemo ? <VoiceMemo memo={voice.memo} busy={busy} onSave={onSaveMemo} /> : null}
+
           <div className="flex flex-wrap gap-1.5">
             {voice.styles.map((style) => (
               <Badge key={style.style_id} tone="neutral">
@@ -96,6 +114,23 @@ export function VoiceCard({
               <span className="font-mono">{(voice.sample_rate / 1000).toFixed(1)}kHz</span>
             </Badge>
           </div>
+
+          {styleless ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-white/[0.06] bg-black/20 px-2.5 py-2">
+              <p className="min-w-[19rem] flex-1 text-label leading-relaxed text-paper-300">
+                この話者は声が固定されているため、喜怒哀楽のスタイルを後から足せます。
+                声はそのままで、よろこび・おこりなどの口調を選べるようになります。
+              </p>
+              <Button
+                className="shrink-0"
+                icon={<SmilePlus className="h-3.5 w-3.5" />}
+                onClick={onAddStyles}
+                disabled={busy}
+              >
+                スタイルを足す
+              </Button>
+            </div>
+          ) : null}
 
           {unfixed ? (
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-shiracha/30 bg-shiracha/[0.10] px-2.5 py-2">

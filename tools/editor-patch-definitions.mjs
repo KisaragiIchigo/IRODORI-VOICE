@@ -1,7 +1,7 @@
 /**
  * エディタへ当てる内容の宣言。
  *
- * 当てるのは次の 11 個。いずれも上流の該当箇所が変わっていた場合は何もせずに終了する
+ * 当てるのは次の 16 個。いずれも上流の該当箇所が変わっていた場合は何もせずに終了する
  * （当てずっぽうに置換して壊さないため）。
  *
  *   1. 長文警告の閾値
@@ -69,6 +69,42 @@
  *      本文編集時に残る古い kana ではなく、送信時にメモ・ルビを処理した本文を使う。
  *      IRODORI-VOICE のエンジン ID に限定し、他のエンジンのかな表記は変更しない。
  *
+ *  12. 辞書の一覧を検索で絞り込む
+ *      語が増えると一覧を目で追えなくなる。読み方＆アクセント辞書とフレーズ分割辞書の
+ *      両方の一覧へ検索欄を置く。照合は単語と読み（分割辞書では単語と分割後の文字列）の
+ *      両方に当て、全角と半角・大小文字・ひらがなとカタカナの違いを吸収する。正規表現へ
+ *      切り替えることもでき、書き損じは一覧を消さずに理由だけを出す。判定は
+ *      domain/dictSearch.ts が持つ。
+ *
+ *  13. 読み方の登録をフレーズ分割辞書へ同時登録する
+ *      エンジンは辞書の読みを語の切れ目に限って当てるため、解析が 1 語として切る複合語の
+ *      内側にある登録語は当たらない。これまでは利用者がフレーズ分割辞書へ同じ語を手で
+ *      書き足す必要があった。単語エディタへ「フレーズ分割辞書にも登録する」を置き、
+ *      ``単語=_単語_`` の形（ポーズを空けずに語の前後を区切る形）で分割辞書へも通す。
+ *      足し引きの計画は domain/dictSplitLink.ts が持ち、手で直した分割は上書きしない。
+ *
+ *  14. 書き出しの通知から保存先を開けるようにする
+ *      本家は書き出し成功の通知へ「今後このメッセージを表示しない」だけを置く。書き出した
+ *      ファイルの置き場所へは、通知を閉じてから自分でたどり直すしかない。動画へ差し込む
+ *      までが一続きの作業なので、通知からそのまま保存先を開けるようにする。ボタンを
+ *      「保存されたフォルダを開く」へ差し替え、開く手段のある Electron 版でのみ出す。
+ *
+ *  15. 新しい話者を並び順と既定スタイルへ自動で登録する
+ *      本家は未登録の話者を見つけると並び替え画面を全画面で開き、そこで並び順が決まる。
+ *      IRODORI-VOICE は管理画面から話者をいくつでも作れるため、その画面を自動では
+ *      出さない。ただし並び順に無い話者は一覧の先頭へ回って既定の話者になり、既定
+ *      スタイルが無いままだと新しい行を作るたびに落ちる（テキスト欄の追加も、複数行の
+ *      貼り付けも通らなくなる）。画面を出す代わりに、増えた話者を並び順の末尾へ足して
+ *      既定スタイルを埋める REGISTER_NEW_CHARACTERS を置き、エンジン起動後と
+ *      管理画面を閉じたときの両方から呼ぶ。
+ *
+ *  16. 辞書を書き換えたら、合成済みの音声とクエリを作り直す
+ *      合成キャッシュの鍵は本文・クエリ・話者から作るため、辞書を書き換えても鍵が
+ *      変わらない。捨てないと、登録したのに前の読みで作った音がそのまま再生される。
+ *      クエリも作り直す。エンジンは送られたアクセント句から本文を組み直すため、古い
+ *      クエリを送ると読みが辞書を当てる前へ戻り、画面下のカタカナも古いままになる。
+ *      単語の追加・変更・削除とフレーズ分割辞書の保存から通す。
+ *
  * 追加するファイルは tools/editor-patch/ に置いてある。パッチ適用時にコピーし、
  * --revert で削除する。本家にもとから在るファイルの差し替えは overrides で行い、
  * こちらは初回に <ファイル名>.orig を残して --revert で書き戻す。
@@ -118,8 +154,24 @@ export const additions = [
     to: join(editorSrc, "domain", "wordSplits.ts"),
   },
   {
+    from: join(assetDir, "dictSearch.ts"),
+    to: join(editorSrc, "domain", "dictSearch.ts"),
+  },
+  {
+    from: join(assetDir, "dictSplitLink.ts"),
+    to: join(editorSrc, "domain", "dictSplitLink.ts"),
+  },
+  {
     from: join(assetDir, "irodoriTextSplit.spec.ts"),
     to: join(editorRoot, "tests", "unit", "domain", "irodoriTextSplit.spec.ts"),
+  },
+  {
+    from: join(assetDir, "dictSearch.spec.ts"),
+    to: join(editorRoot, "tests", "unit", "domain", "dictSearch.spec.ts"),
+  },
+  {
+    from: join(assetDir, "dictSplitLink.spec.ts"),
+    to: join(editorRoot, "tests", "unit", "domain", "dictSplitLink.spec.ts"),
   },
   {
     from: join(assetDir, "build", "irodori-installer.nsh"),
@@ -429,11 +481,68 @@ const logger = createLogger("useFetchNewUpdateInfos");
         });
       }
 `,
-    patched: `      // 本家は未登録の話者を見つけると並び替え画面を全画面で開く。キャラクターが
-      // 増えるのが年に数回という前提の作りだが、IRODORI-VOICE では管理画面から
-      // 話者をいくつでも作れるため、作るたびに開いて邪魔になる。
-      // 並び替えは「設定」→「キャラクター並び替え・試聴」からいつでも開けるので、
-      // 自動で開くのをやめる。
+    patched: `      // 本家は未登録の話者を見つけると並び替え画面を全画面で開き、そこで並び順を
+      // 決めさせる。キャラクターが増えるのが年に数回という前提の作りだが、
+      // IRODORI-VOICE では管理画面から話者をいくつでも作れるため、作るたびに開いて
+      // 邪魔になる。画面を出す代わりに、増えた話者を並び順の末尾へ黙って足す。
+      // 並び替えは「設定」→「キャラクター並び替え・試聴」からいつでも開ける。
+      await actions.REGISTER_NEW_CHARACTERS();
+`,
+  },
+  {
+    name: "新しい話者の登録",
+    file: join(editorSrc, "store", "index.ts"),
+    original: `      const newSpeakerUuid = allSpeakerUuid.filter(
+        (speakerUuid) => !state.userCharacterOrder.includes(speakerUuid),
+      );
+      return newSpeakerUuid;
+    },
+  },
+`,
+    patched: `      const newSpeakerUuid = allSpeakerUuid.filter(
+        (speakerUuid) => !state.userCharacterOrder.includes(speakerUuid),
+      );
+      return newSpeakerUuid;
+    },
+  },
+
+  /**
+   * 並び順に無い話者を末尾へ足し、既定スタイルを埋める。
+   *
+   * 本家は新しい話者を見つけると並び替え画面を開き、そこで並び順が決まる。
+   * IRODORI-VOICE はその画面を自動で出さないため、代わりにここで登録する。
+   * 並び順に無い話者は indexOf が -1 になって一覧の先頭へ回り、既定の話者として
+   * 扱われる。そこへ既定スタイルが無いと GENERATE_AUDIO_ITEM が落ち、
+   * テキスト欄の追加と複数行の貼り付けができなくなる。
+   */
+  REGISTER_NEW_CHARACTERS: {
+    async action({ state, actions }) {
+      const newCharacters = await actions.GET_NEW_CHARACTERS();
+      if (newCharacters.length > 0) {
+        await actions.SET_USER_CHARACTER_ORDER([
+          ...state.userCharacterOrder,
+          ...newCharacters,
+        ]);
+      }
+      await actions.LOAD_DEFAULT_STYLE_IDS();
+    },
+  },
+`,
+  },
+  {
+    name: "新しい話者の登録の型",
+    file: join(editorSrc, "store", "type.ts"),
+    original: `  GET_NEW_CHARACTERS: {
+    action(): SpeakerId[];
+  };
+`,
+    patched: `  GET_NEW_CHARACTERS: {
+    action(): SpeakerId[];
+  };
+
+  REGISTER_NEW_CHARACTERS: {
+    action(): Promise<void>;
+  };
 `,
   },
   {
@@ -745,6 +854,879 @@ const isAcceptRetrieveTelemetryDialogOpenComputed = computed({`,
 `,
     patched: `  isDictionaryManageDialogOpen: false,
   isWordSplitManageDialogOpen: false,
+`,
+  },
+  {
+    name: "辞書の検索と同時登録（読み込み）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `import { getValueOrThrow } from "@/type/result";`,
+    patched: `import { getValueOrThrow } from "@/type/result";
+import BaseCheckbox from "@/components/Base/BaseCheckbox.vue";
+import { createDictMatcher } from "@/domain/dictSearch";
+import {
+  isSplitRegistered,
+  planSplitLink,
+  planSplitUnlink,
+} from "@/domain/dictSplitLink";
+import {
+  type WordSplits,
+  fetchWordSplits,
+  sendWordSplits,
+} from "@/domain/wordSplits";`,
+  },
+  {
+    name: "辞書の検索と同時登録（computed の読み込み）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `import { ref, watch } from "vue";`,
+    patched: `import { computed, ref, watch } from "vue";`,
+  },
+  {
+    name: "辞書の検索と同時登録（状態）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `const userDict = ref<Record<string, UserDictWord>>({});`,
+    patched: `const userDict = ref<Record<string, UserDictWord>>({});
+
+/** フレーズ分割辞書。同時登録の状態を出すために、辞書を読むついでに読んでおく。 */
+const wordSplits = ref<WordSplits>({});
+
+const searchQuery = ref("");
+const searchUsesRegex = ref(false);
+
+/** 検索の照合器。書き損じた正規表現はここで受け止める。 */
+const matcher = computed(() =>
+  createDictMatcher(
+    searchQuery.value,
+    searchUsesRegex.value ? "regex" : "text",
+  ),
+);
+
+const searchError = computed(() =>
+  matcher.value.type === "error" ? matcher.value.message : undefined,
+);
+
+/** 一覧に出す単語。単語と読みの両方を照合に使う。 */
+const filteredWords = computed<[string, UserDictWord][]>(() => {
+  const entries = Object.entries(userDict.value);
+  const current = matcher.value;
+  // 正規表現が書き損じの間は絞り込まない。入力の途中で一覧が消えると、何を直せば
+  // よいのか分からなくなる。理由は検索欄の下に出す。
+  if (current.type !== "matcher") return entries;
+  return entries.filter(([, word]) =>
+    current.matches([word.surface, word.yomi]),
+  );
+});
+
+const searchCount = computed(() => {
+  const total = Object.keys(userDict.value).length;
+  const shown = filteredWords.value.length;
+  return shown === total ? \`\${total} 件\` : \`\${shown} / \${total} 件\`;
+});`,
+  },
+  {
+    name: "辞書の検索と同時登録（検索欄）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `            <div class="list">
+              <BaseListItem
+                v-for="(value, key) in userDict"`,
+    patched: `            <div class="search">
+              <BaseTextField
+                v-model="searchQuery"
+                ariaLabel="単語を検索"
+                placeholder="単語・読みで検索"
+                :hasError="searchError != undefined"
+              >
+                <template #error>{{ searchError }}</template>
+              </BaseTextField>
+              <div class="search-row">
+                <BaseCheckbox
+                  v-model:checked="searchUsesRegex"
+                  label="正規表現"
+                />
+                <div class="search-count">{{ searchCount }}</div>
+              </div>
+            </div>
+            <div class="list">
+              <BaseListItem
+                v-for="[key, value] in filteredWords"`,
+  },
+  {
+    name: "辞書の検索と同時登録（一覧が空のとき）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `              </BaseListItem>
+            </div>
+          </template>`,
+    patched: `              </BaseListItem>
+              <div v-if="filteredWords.length === 0" class="list-empty">
+                {{
+                  Object.keys(userDict).length === 0
+                    ? "まだ単語が登録されていません。"
+                    : "検索に一致する単語がありません。"
+                }}
+              </div>
+            </div>
+          </template>`,
+  },
+  {
+    name: "辞書の検索と同時登録（検索欄の見た目）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `.list {
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+}`,
+    patched: `.search {
+  display: flex;
+  flex-direction: column;
+  gap: vars.$gap-1;
+  width: 240px;
+  margin-bottom: vars.$padding-1;
+}
+
+.search-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: vars.$gap-1;
+}
+
+.search-count {
+  font-size: 0.75rem;
+  color: colors.$display;
+  white-space: nowrap;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+}
+
+.list-empty {
+  padding: vars.$padding-1;
+  font-size: 0.75rem;
+  color: colors.$display;
+}`,
+  },
+  {
+    name: "辞書の検索と同時登録（検索欄の入力欄）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `import BaseButton from "@/components/Base/BaseButton.vue";`,
+    patched: `import BaseButton from "@/components/Base/BaseButton.vue";
+import BaseTextField from "@/components/Base/BaseTextField.vue";`,
+  },
+  {
+    name: "同時登録の状態を単語エディタへ渡す",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `            :initialWordPriority="currentWord.wordPriority"
+            :initialAccentType="currentWord.accentType"
+          />`,
+    patched: `            :initialWordPriority="currentWord.wordPriority"
+            :initialAccentType="currentWord.accentType"
+            :initialSplitRegistered="
+              isSplitRegistered(wordSplits, currentWord.surface)
+            "
+            :initialSplitValue="wordSplits[currentWord.surface]"
+          />`,
+  },
+  {
+    name: "同時登録の既定を新しい単語へ渡す",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `            :initialWordPriority="5"
+            :initialAccentType="0"
+            isNew`,
+    patched: `            :initialWordPriority="5"
+            :initialAccentType="0"
+            :initialSplitRegistered="true"
+            isNew`,
+  },
+  {
+    name: "同時登録の処理",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `const loadUserDict = async () => {
+  if (store.state.engineIds.length === 0)
+    throw new Error(\`assert engineId.length > 0\`);
+`,
+    patched: `/** 分割辞書を読む。読めなくても読み方の登録そのものは続けられる。 */
+const loadWordSplits = async () => {
+  const engine = dictEngine();
+  if (!engine) return;
+  try {
+    wordSplits.value = await fetchWordSplits(engine);
+  } catch (e) {
+    // 同時登録の状態が分からないだけなので、空として扱って先へ進む。書き込む前には
+    // 必ず読み直すため、ここで空になっても登録済みの分割を消すことはない。
+    wordSplits.value = {};
+    window.backend.logError(e);
+  }
+};
+
+/**
+ * 分割辞書へ、いまの登録内容を反映する。
+ *
+ * エンジンには 1 語だけを足す口が無く、送った一覧がそのまま辞書になる。書き込む直前に
+ * 必ず取り直し、取れなければ何も送らない。手元の古い一覧を送ると、辞書画面を開いた後に
+ * 別の場所で足された語が消える。
+ */
+const applySplitPlan = async (
+  plan: (splits: WordSplits) => WordSplits | undefined,
+) => {
+  const engine = dictEngine();
+  if (!engine) return;
+
+  try {
+    const latest = await lockUiWhile(fetchWordSplits(engine));
+    const next = plan(latest);
+    if (next == undefined) {
+      wordSplits.value = latest;
+      return;
+    }
+    await lockUiWhile(sendWordSplits(engine, next));
+    wordSplits.value = next;
+  } catch (e) {
+    const detail =
+      e instanceof Error ? e.message : "更新の途中で失敗しました。";
+    alertDict(
+      "フレーズ分割辞書を更新できませんでした",
+      \`\${detail}\\n読み方＆アクセント辞書への登録は保存されています。\`,
+    );
+    window.backend.logError(e);
+  }
+};
+
+/** 登録した単語を分割辞書へ通す。表記を変えたときは前の表記の分も片付ける。 */
+const linkWordSplit = (params: {
+  previousSurface?: string;
+  surface: string;
+  registered: boolean;
+}) => applySplitPlan((splits) => planSplitLink({ splits, ...params }));
+
+/** 削除した単語の分割を片付ける。手で区切りを直した内容は残す。 */
+const unlinkWordSplit = (surface: string) =>
+  applySplitPlan((splits) => planSplitUnlink({ splits, surface }));
+
+const loadUserDict = async () => {
+  if (store.state.engineIds.length === 0)
+    throw new Error(\`assert engineId.length > 0\`);
+
+  await loadWordSplits();
+`,
+  },
+  {
+    name: "同時登録（単語の変更時）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `    userDict.value[currentWord.value.id] = {
+      ...userDict.value[currentWord.value.id],`,
+    patched: `    await linkWordSplit({
+      previousSurface: currentWord.value.surface,
+      surface: editState.surface,
+      registered: editState.splitRegistered,
+    });
+    userDict.value[currentWord.value.id] = {
+      ...userDict.value[currentWord.value.id],`,
+  },
+  {
+    name: "同時登録（単語の追加時）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `    await loadUserDict();
+    selectWord(wordUuid);`,
+    patched: `    await linkWordSplit({
+      surface: editState.surface,
+      registered: editState.splitRegistered,
+    });
+    // 絞り込みに一致しない語を足すと、登録できたのに一覧から消えたように見える。
+    const shown = matcher.value;
+    if (
+      shown.type === "matcher" &&
+      !shown.matches([editState.surface, editState.yomi])
+    ) {
+      searchQuery.value = "";
+    }
+    await loadUserDict();
+    selectWord(wordUuid);`,
+  },
+  {
+    name: "同時登録（単語の削除時）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `      await lockUiWhile(
+        store.actions.DELETE_WORD({
+          wordUuid: id,
+        }),
+      );`,
+    patched: `      const deletedSurface = userDict.value[id].surface;
+      await lockUiWhile(
+        store.actions.DELETE_WORD({
+          wordUuid: id,
+        }),
+      );
+      await unlinkWordSplit(deletedSurface);`,
+  },
+  {
+    name: "辞書を開いたときに検索を戻す",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "DictionaryManageDialog.vue"),
+    original: `      await loadUserDict();
+      currentWord.value = null;
+    }`,
+    patched: `      searchQuery.value = "";
+      await loadUserDict();
+      currentWord.value = null;
+    }`,
+  },
+  {
+    name: "同時登録の欄（読み込み）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "WordEditor.vue"),
+    original: `import BaseButton from "@/components/Base/BaseButton.vue";`,
+    patched: `import BaseButton from "@/components/Base/BaseButton.vue";
+import BaseCheckbox from "@/components/Base/BaseCheckbox.vue";
+import { autoSplitValue } from "@/domain/dictSplitLink";`,
+  },
+  {
+    name: "同時登録の欄（プロパティ）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "WordEditor.vue"),
+    original: `    initialWordPriority: number;
+    initialAccentType: number;
+  }>(),`,
+    patched: `    initialWordPriority: number;
+    initialAccentType: number;
+    /** フレーズ分割辞書へ同時登録するか。新しい単語では登録する側を既定にする。 */
+    initialSplitRegistered: boolean;
+    /** 分割辞書に既にある分割後の文字列。無ければ未登録。 */
+    initialSplitValue?: string;
+  }>(),`,
+  },
+  {
+    name: "同時登録の欄（プロパティの既定値）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "WordEditor.vue"),
+    original: `  {
+    isNew: false,
+  },
+);`,
+    patched: `  {
+    isNew: false,
+    initialSplitValue: undefined,
+  },
+);`,
+  },
+  {
+    name: "同時登録の欄（状態）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "WordEditor.vue"),
+    original: `const wordPriority = ref<number>(props.initialWordPriority);`,
+    patched: `const wordPriority = ref<number>(props.initialWordPriority);
+const splitRegistered = ref<boolean>(props.initialSplitRegistered);
+
+/**
+ * 分割辞書へ書き込まれる内容。
+ *
+ * 既に手で区切りを直した内容があるなら、それをそのまま使う（同時登録は上書きしない）。
+ * 表記を変えた場合は前の分割が当てはまらないため、新しい表記から組んだ形を出す。
+ */
+const splitValue = computed(() =>
+  surface.value === props.initialSurface && props.initialSplitValue != undefined
+    ? props.initialSplitValue
+    : autoSplitValue(surface.value),
+);`,
+  },
+  {
+    name: "同時登録の欄（編集状態の型）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "WordEditor.vue"),
+    original: `          type: "valid";
+          surface: string;
+          yomi: string;
+          accentType: number;
+          wordPriority: number;
+        } => {`,
+    patched: `          type: "valid";
+          surface: string;
+          yomi: string;
+          accentType: number;
+          wordPriority: number;
+          splitRegistered: boolean;
+        } => {`,
+  },
+  {
+    name: "同時登録の欄（変更の判定）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "WordEditor.vue"),
+    original: `            accentType === props.initialAccentType &&
+            wordPriority.value === props.initialWordPriority`,
+    patched: `            accentType === props.initialAccentType &&
+            wordPriority.value === props.initialWordPriority &&
+            splitRegistered.value === props.initialSplitRegistered`,
+  },
+  {
+    name: "同時登録の欄（編集状態の値）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "WordEditor.vue"),
+    original: `        accentType: computeRegisteredAccent(),
+        wordPriority: wordPriority.value,
+      };`,
+    patched: `        accentType: computeRegisteredAccent(),
+        wordPriority: wordPriority.value,
+        splitRegistered: splitRegistered.value,
+      };`,
+  },
+  {
+    name: "同時登録の欄（リセット）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "WordEditor.vue"),
+    original: `  wordPriority.value = props.initialWordPriority;
+  temporaryYomi.value = props.initialYomi;`,
+    patched: `  wordPriority.value = props.initialWordPriority;
+  splitRegistered.value = props.initialSplitRegistered;
+  temporaryYomi.value = props.initialYomi;`,
+  },
+  {
+    name: "同時登録の欄（画面）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "WordEditor.vue"),
+    original: `            <div class="slider-label">
+              <span>低い</span>
+              <span>標準</span>
+              <span>高い</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </BaseScrollArea>`,
+    patched: `            <div class="slider-label">
+              <span>低い</span>
+              <span>標準</span>
+              <span>高い</span>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <h3 class="headline">フレーズ分割辞書への同時登録</h3>
+          <div>
+            この単語をフレーズ分割辞書へも登録し、単語の前後をフレーズの区切りにします。
+            「証券取引所」のように解析がひとまとまりとして扱う複合語の内側にある単語でも、
+            登録した読みとアクセントが反映されるようになります。
+          </div>
+          <div>
+            区切りでポーズ（無音）は入りません。ただし短い単語では読みが細かく分かれて
+            聞こえることがあるため、その場合はオフにしてください。
+          </div>
+          <div class="split-toggle">
+            <BaseCheckbox
+              v-model:checked="splitRegistered"
+              label="フレーズ分割辞書にも登録する"
+            />
+          </div>
+          <div v-if="splitRegistered && surface.length > 0" class="split-value">
+            登録される内容: {{ splitValue }}
+          </div>
+        </div>
+      </div>
+    </BaseScrollArea>`,
+  },
+  {
+    name: "同時登録の欄（見た目）",
+    file: join(editorSrc, "components", "Dialog", "DictionaryManageDialog", "WordEditor.vue"),
+    original: `.slider-label {
+  display: flex;
+  justify-content: space-between;
+}`,
+    patched: `.slider-label {
+  display: flex;
+  justify-content: space-between;
+}
+
+/* チェックボックスは中央寄せで作られているため、フォームの左端へ揃え直す。 */
+.split-toggle {
+  display: flex;
+}
+
+.split-value {
+  color: colors.$display;
+  word-break: break-all;
+}`,
+  },
+  {
+    name: "保存先を開く IPC の宣言",
+    file: join(editorSrc, "backend", "electron", "ipcType.ts"),
+    original: `  OPEN_ENGINE_DIRECTORY: {
+    args: [obj: { engineId: EngineId }];
+    return: void;
+  };
+`,
+    patched: `  OPEN_ENGINE_DIRECTORY: {
+    args: [obj: { engineId: EngineId }];
+    return: void;
+  };
+
+  OPEN_CONTAINING_FOLDER: {
+    args: [obj: { filePath: string }];
+    return: void;
+  };
+`,
+  },
+  {
+    name: "保存先を開く処理",
+    file: join(editorSrc, "backend", "electron", "manager", "ipcMainHandleManager.ts"),
+    original: `  void shell.openPath(path.resolve(engineDirectory));
+}
+`,
+    patched: `  void shell.openPath(path.resolve(engineDirectory));
+}
+
+// 書き出したファイルを選択した状態で、その置き場所を開く
+function openContainingFolder(filePath: string) {
+  // Windows環境だとスラッシュ区切りのパスが動かない。
+  // path.resolveはWindowsだけバックスラッシュ区切りにしてくれるため、path.resolveを挟む。
+  const resolved = path.resolve(filePath);
+
+  // 通知が消えるまでの間に移動・削除された場合は何もしない。
+  if (!fs.existsSync(resolved)) return;
+
+  shell.showItemInFolder(resolved);
+}
+`,
+  },
+  {
+    name: "保存先を開く IPC の登録",
+    file: join(editorSrc, "backend", "electron", "manager", "ipcMainHandleManager.ts"),
+    original: `      OPEN_ENGINE_DIRECTORY: async (_, { engineId }) => {
+        openEngineDirectory(engineId);
+      },
+`,
+    patched: `      OPEN_ENGINE_DIRECTORY: async (_, { engineId }) => {
+        openEngineDirectory(engineId);
+      },
+
+      OPEN_CONTAINING_FOLDER: async (_, { filePath }) => {
+        openContainingFolder(filePath);
+      },
+`,
+  },
+  {
+    name: "保存先を開く橋渡し",
+    file: join(editorSrc, "backend", "electron", "renderer", "preload.ts"),
+    original: `  openEngineDirectory: (engineId: EngineId) => {
+    return ipcRendererInvokeProxy.OPEN_ENGINE_DIRECTORY({ engineId });
+  },
+`,
+    patched: `  openEngineDirectory: (engineId: EngineId) => {
+    return ipcRendererInvokeProxy.OPEN_ENGINE_DIRECTORY({ engineId });
+  },
+
+  openContainingFolder: (filePath: string) => {
+    return ipcRendererInvokeProxy.OPEN_CONTAINING_FOLDER({ filePath });
+  },
+`,
+  },
+  {
+    name: "保存先を開く口の型",
+    file: join(editorSrc, "type", "preload.ts"),
+    original: `  openEngineDirectory(engineId: EngineId): void;
+`,
+    patched: `  openEngineDirectory(engineId: EngineId): void;
+  openContainingFolder(filePath: string): void;
+`,
+  },
+  {
+    name: "保存先を開く口（ブラウザ版）",
+    file: join(editorSrc, "backend", "browser", "sandbox.ts"),
+    original: `  openEngineDirectory(/* engineId: EngineId */) {
+    throw new Error(\`Not supported on Browser version: openEngineDirectory\`);
+  },
+`,
+    patched: `  openEngineDirectory(/* engineId: EngineId */) {
+    throw new Error(\`Not supported on Browser version: openEngineDirectory\`);
+  },
+  openContainingFolder(/* filePath: string */) {
+    throw new Error(\`Not supported on Browser version: openContainingFolder\`);
+  },
+`,
+  },
+  {
+    name: "保存先を開く操作の型",
+    file: join(editorSrc, "store", "type.ts"),
+    original: `  SHOW_NOTIFY_AND_NOT_SHOW_AGAIN_BUTTON: {
+    action(payload: NotifyAndNotShowAgainButtonOption): void;
+  };
+`,
+    patched: `  SHOW_NOTIFY_AND_NOT_SHOW_AGAIN_BUTTON: {
+    action(payload: NotifyAndNotShowAgainButtonOption): void;
+  };
+
+  OPEN_CONTAINING_FOLDER: {
+    action(payload: { filePath: string }): void;
+  };
+`,
+  },
+  {
+    name: "保存先を開く操作",
+    file: join(editorSrc, "store", "ui.ts"),
+    original: `  SHOW_NOTIFY_AND_NOT_SHOW_AGAIN_BUTTON: {
+    action({ actions }, payload: NotifyAndNotShowAgainButtonOption) {
+      showNotifyAndNotShowAgainButton({ actions }, payload);
+    },
+  },
+`,
+    patched: `  SHOW_NOTIFY_AND_NOT_SHOW_AGAIN_BUTTON: {
+    action({ actions }, payload: NotifyAndNotShowAgainButtonOption) {
+      showNotifyAndNotShowAgainButton({ actions }, payload);
+    },
+  },
+
+  OPEN_CONTAINING_FOLDER: {
+    action(_, { filePath }) {
+      window.backend.openContainingFolder(filePath);
+    },
+  },
+`,
+  },
+  {
+    name: "書き出し通知の動作環境の判定",
+    file: join(editorSrc, "components", "Dialog", "Dialog.ts"),
+    original: `import { errorToMessage } from "@/helpers/errorHelper";
+`,
+    patched: `import { errorToMessage } from "@/helpers/errorHelper";
+import { isElectron } from "@/helpers/platform";
+`,
+  },
+  {
+    name: "書き出し通知のボタン",
+    file: join(editorSrc, "components", "Dialog", "Dialog.ts"),
+    original: `// 書き出し成功時の通知を表示
+const showWriteSuccessNotify = ({
+  mediaType,
+  actions,
+}: {
+  mediaType: MediaType;
+  actions: DotNotationDispatch<AllActions>;
+}): void => {
+  const mediaTypeNames: Record<MediaType, string> = {
+    audio: "音声",
+    text: "テキスト",
+    project: "プロジェクト",
+    label: "labファイル",
+  };
+  void actions.SHOW_NOTIFY_AND_NOT_SHOW_AGAIN_BUTTON({
+    message: \`\${mediaTypeNames[mediaType]}を書き出しました\`,
+    tipName: "notifyOnGenerate",
+  });
+};
+`,
+    patched: `// 書き出し成功時の通知を表示
+const showWriteSuccessNotify = ({
+  mediaType,
+  savedPath,
+  actions,
+}: {
+  mediaType: MediaType;
+  savedPath: string | undefined;
+  actions: DotNotationDispatch<AllActions>;
+}): void => {
+  const mediaTypeNames: Record<MediaType, string> = {
+    audio: "音声",
+    text: "テキスト",
+    project: "プロジェクト",
+    label: "labファイル",
+  };
+
+  // 保存先が分かっていて、かつフォルダを開ける環境のときだけ導線を出す。
+  // ブラウザ版には開く手段が無いため、押せないボタンを見せない。
+  const openFolderActions =
+    isElectron && savedPath != undefined
+      ? [
+          {
+            label: "保存されたフォルダを開く",
+            textColor: "toast-button-display",
+            handler: () => {
+              void actions.OPEN_CONTAINING_FOLDER({ filePath: savedPath });
+            },
+          },
+        ]
+      : [];
+
+  Notify.create({
+    message: \`\${mediaTypeNames[mediaType]}を書き出しました\`,
+    color: "toast",
+    textColor: "toast-display",
+    icon: "info",
+    timeout: NOTIFY_TIMEOUT,
+    actions: [
+      ...openFolderActions,
+      {
+        label: "閉じる",
+        color: "toast-button-display",
+      },
+    ],
+  });
+};
+`,
+  },
+  {
+    name: "書き出し通知へ渡す保存先（まとめて書き出し）",
+    file: join(editorSrc, "components", "Dialog", "Dialog.ts"),
+    original: `    showWriteSuccessNotify({
+      mediaType: "audio",
+      actions,
+    });`,
+    patched: `    showWriteSuccessNotify({
+      mediaType: "audio",
+      savedPath: successArray[0],
+      actions,
+    });`,
+  },
+  {
+    name: "書き出し通知へ渡す保存先（1 件の書き出し）",
+    file: join(editorSrc, "components", "Dialog", "Dialog.ts"),
+    original: `    showWriteSuccessNotify({
+      mediaType,
+      actions,
+    });`,
+    patched: `    showWriteSuccessNotify({
+      mediaType,
+      savedPath: result.path,
+      actions,
+    });`,
+  },
+  {
+    name: "辞書更新時にキャッシュを捨てる口",
+    file: join(editorSrc, "store", "audioGenerate.ts"),
+    original: `const audioBlobCache: Record<string, Blob> = {};
+`,
+    patched: `const audioBlobCache: Record<string, Blob> = {};
+
+/**
+ * 合成済みの音声を捨てる。
+ *
+ * キャッシュの鍵は本文・クエリ・話者から作るため、辞書を書き換えても鍵が変わらない。
+ * 捨てないと、登録したのに前の読みで作った音がそのまま再生される。
+ */
+export function clearAudioBlobCache(): void {
+  for (const key of Object.keys(audioBlobCache)) {
+    delete audioBlobCache[key];
+  }
+}
+`,
+  },
+  {
+    name: "辞書更新時の取り直しの読み込み",
+    file: join(editorSrc, "store", "audio.ts"),
+    original: `import {
+  fetchAudioFromAudioItem,
+  generateLabFromAudioQuery,
+  handlePossiblyNotMorphableError,
+  isMorphable,
+} from "./audioGenerate";
+`,
+    patched: `import {
+  clearAudioBlobCache,
+  fetchAudioFromAudioItem,
+  generateLabFromAudioQuery,
+  handlePossiblyNotMorphableError,
+  isMorphable,
+} from "./audioGenerate";
+`,
+  },
+  {
+    name: "辞書更新時の取り直し",
+    file: join(editorSrc, "store", "audio.ts"),
+    original: `  FETCH_AUDIO: {
+`,
+    patched: `  INVALIDATE_DICTIONARY_DEPENDENT_AUDIO: {
+    action: createUILockAction(async ({ state, mutations, actions }) => {
+      // 合成済みの音声は辞書を当てたあとの読みで作られている。まず捨てる。
+      clearAudioBlobCache();
+
+      // クエリも作り直す。エンジンは送られたアクセント句から本文を組み直すため、
+      // 古いクエリを送ると読みが辞書を当てる前へ戻る。画面下のカタカナも古いままになる。
+      for (const audioKey of state.audioKeys) {
+        const audioItem = state.audioItems[audioKey];
+        if (audioItem.query == undefined) continue;
+        try {
+          const audioQuery = await actions.FETCH_AUDIO_QUERY({
+            text: audioItem.text,
+            engineId: audioItem.voice.engineId,
+            styleId: audioItem.voice.styleId,
+          });
+          mutations.SET_AUDIO_QUERY({ audioKey, audioQuery });
+        } catch (error) {
+          // 1 行取れなくても残りは作り直す。取れなかった行は次に触ったときに揃う。
+          window.backend.logError(error);
+        }
+      }
+    }),
+  },
+
+  FETCH_AUDIO: {
+`,
+  },
+  {
+    name: "辞書更新時の取り直しの型",
+    file: join(editorSrc, "store", "type.ts"),
+    original: `  FETCH_AUDIO_QUERY: {
+    action(payload: {
+      text: string;
+      engineId: EngineId;
+`,
+    patched: `  INVALIDATE_DICTIONARY_DEPENDENT_AUDIO: {
+    action(): void;
+  };
+
+  FETCH_AUDIO_QUERY: {
+    action(payload: {
+      text: string;
+      engineId: EngineId;
+`,
+  },
+  {
+    name: "単語を足したときの取り直し",
+    file: join(editorSrc, "store", "dictionary.ts"),
+    original: `      await actions.SYNC_ALL_USER_DICT();
+      return wordUuid;
+`,
+    patched: `      await actions.SYNC_ALL_USER_DICT();
+      await actions.INVALIDATE_DICTIONARY_DEPENDENT_AUDIO();
+      return wordUuid;
+`,
+  },
+  {
+    name: "単語を書き換えたときの取り直し",
+    file: join(editorSrc, "store", "dictionary.ts"),
+    original: `            instance.invoke("rewriteUserDictWord")({
+              wordUuid,
+              surface,
+              pronunciation,
+              accentType,
+              priority,
+            }),
+          );
+      }
+    },
+  },
+`,
+    patched: `            instance.invoke("rewriteUserDictWord")({
+              wordUuid,
+              surface,
+              pronunciation,
+              accentType,
+              priority,
+            }),
+          );
+      }
+      await actions.INVALIDATE_DICTIONARY_DEPENDENT_AUDIO();
+    },
+  },
+`,
+  },
+  {
+    name: "単語を消したときの取り直し",
+    file: join(editorSrc, "store", "dictionary.ts"),
+    original: `            instance.invoke("deleteUserDictWord")({
+              wordUuid,
+            }),
+          );
+      }
+    },
+  },
+`,
+    patched: `            instance.invoke("deleteUserDictWord")({
+              wordUuid,
+            }),
+          );
+      }
+      await actions.INVALIDATE_DICTIONARY_DEPENDENT_AUDIO();
+    },
+  },
 `,
   },
 ];

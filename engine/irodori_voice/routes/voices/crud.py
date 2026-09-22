@@ -8,6 +8,7 @@ from ...backends.base import BackendError
 from ...backends.irodori.backend import preset_id_from
 from ...paths import voice_assets_dir
 from ...schemas import VoiceCreateRequest, VoiceOut, VoiceUpdateRequest
+from ...voices.expression_styles import extend_with_expression_styles
 from ...voices.icon_store import icon_store
 from ...voices.store import VoiceStyleDef
 from .shared import engine_state, voice_out, voice_out_for_preset
@@ -70,6 +71,48 @@ def update_voice(request: Request, voice_id: str, payload: VoiceUpdateRequest) -
     if state.service is not None:
         state.service.clear_cache()
     return voice_out_for_preset(state, preset)
+
+
+@router.post("/voices/{voice_id:path}/expression-styles", response_model=VoiceOut)
+def add_expression_styles(request: Request, voice_id: str) -> VoiceOut:
+    """既にある話者へ、喋り方のスタイルを足す。
+
+    対象は声が固定されている（参照音声を持つ）話者だけ。参照を持たない話者は読み上げる文の
+    長さで声そのものが動くため、スタイルを足しても喋り分ける前に別人になる。
+
+    既にあるスタイルは定義ごと残し、足りない顔ぶれだけを補う。スタイルの数値 ID は
+    話者 ID とスタイル ID のハッシュで決まるため、足してもエディタが覚えている割り当ては
+    ずれない（voicevox/speaker_map.py）。
+    """
+
+    state = engine_state(request)
+    if state.store is None or state.irodori is None:
+        raise HTTPException(status_code=503, detail="エンジンが初期化されていません。")
+
+    try:
+        preset_id = preset_id_from(voice_id)
+        preset = state.store.get(preset_id)
+    except BackendError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"話者 {voice_id} が見つかりません。") from exc
+
+    if preset.builtin:
+        raise HTTPException(
+            status_code=403, detail="同梱話者は編集できません。複製してから変更してください。"
+        )
+    if preset.mode != "reference" or not preset.reference_files:
+        raise HTTPException(
+            status_code=400,
+            detail="声が固定されていない話者にはスタイルを足せません。先に声を固定してください。",
+        )
+
+    styles = extend_with_expression_styles(preset.styles)
+    updated = state.store.update(preset_id, {"styles": [style.to_json() for style in styles]})
+
+    if state.service is not None:
+        state.service.clear_cache()
+    return voice_out_for_preset(state, updated)
 
 
 @router.post("/voices/{voice_id:path}/duplicate", response_model=VoiceOut, status_code=201)

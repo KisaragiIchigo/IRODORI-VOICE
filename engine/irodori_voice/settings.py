@@ -73,6 +73,11 @@ class EngineSettings:
     split_target_chars: int = 38
     split_max_chars: int = 60
 
+    # 鉤括弧の境目で区間を分け、中では割らないか。区間ごとに読み方が決まるため、
+    # 分けるとセリフと地の文で調子が切り替わり、朗読に近づく。混ぜると両方が
+    # 同じ調子になる代わりに、区間の数が減って合成は速くなる。
+    split_at_quotes: bool = True
+
     # 漢字を含む語を OpenJTalk の読みへ置き換えてからモデルへ渡すか。
     #
     # Irodori-TTS は表記からそのまま音を作るモデルで、漢字かな交じりの文章で学習して

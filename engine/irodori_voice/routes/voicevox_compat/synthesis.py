@@ -108,6 +108,7 @@ def _run_pipeline(
                 enabled=settings.split_long_text,
                 target_chars=settings.split_target_chars,
                 max_chars=settings.split_max_chars,
+                at_quotes=settings.split_at_quotes,
             ),
             output=output,
             low_band=LowBandPolicy(enabled=settings.restore_low_band),

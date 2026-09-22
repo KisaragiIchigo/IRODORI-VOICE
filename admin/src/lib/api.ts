@@ -20,6 +20,7 @@ import type {
   SeedPreview,
   SeedVoiceRequest,
   Voice,
+  VoiceUpdate,
 } from "./types";
 
 const API = "/api";
@@ -66,6 +67,10 @@ async function postForm<T>(path: string, form: FormData): Promise<T> {
 
 export const api = {
   listVoices: () => getJson<Voice[]>("/voices"),
+
+  /** 名前・メモ・識別色の書き換え。送った項目だけが変わる。 */
+  updateVoice: (voiceId: string, payload: VoiceUpdate) =>
+    patchJson<Voice>(`/voices/${voiceId}`, payload),
 
   deleteVoice: async (voiceId: string) =>
     unwrap<void>(await fetch(`${API}/voices/${voiceId}`, { method: "DELETE" })),
@@ -121,6 +126,10 @@ export const api = {
     postJson<Voice>(`/voices/${voiceId}/bake-reference`, {
       reference_text: referenceText ?? null,
     }),
+
+  /** 声が固定された話者へ、喋り方のスタイルを後から足す。既にあるスタイルは残る。 */
+  addExpressionStyles: (voiceId: string) =>
+    postJson<Voice>(`/voices/${voiceId}/expression-styles`, {}),
 
   listModels: () => getJson<InstalledModel[]>("/aivm"),
 

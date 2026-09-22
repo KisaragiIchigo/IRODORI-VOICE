@@ -1,4 +1,3 @@
-import * as Switch from "@radix-ui/react-switch";
 import { ChevronDown } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -8,6 +7,7 @@ import { Button } from "../ui/Button";
 import { SelectField, TextAreaField, TextField } from "../ui/Field";
 import { CaptionField } from "./CaptionField";
 import { ColorPicker } from "./ColorPicker";
+import { EmotionStyleSwitch } from "./EmotionStyleSwitch";
 
 type Props = {
   /** 合成に使える手本の話者。合成できない形式はエンジン側で除かれている。 */
@@ -128,34 +128,7 @@ export function CloneForm({ sources, busy, onSubmit, onSwitchToSeed }: Props) {
         hint="ノーマルのスタイルにだけ入る話し方の指定です。喜怒哀楽のスタイルは、それぞれ固有の指示を持っているため変わりません。声そのものは参照した音声で決まるため、ここで変えられるのは話し方だけです。"
       />
 
-      <label className="flex items-start gap-3 rounded-md border border-white/[0.04] bg-black/20 px-3 py-2.5">
-        <Switch.Root
-          checked={withEmotion}
-          onCheckedChange={setWithEmotion}
-          className={cn(
-            "relative mt-0.5 h-5 w-9 shrink-0 rounded-full border transition-colors",
-            withEmotion
-              ? "border-beni/40 bg-beni/30 shadow-glow"
-              : "border-white/[0.08] bg-white/[0.04]",
-          )}
-        >
-          <Switch.Thumb
-            className={cn(
-              "block h-3.5 w-3.5 rounded-full bg-paper-200 transition-transform",
-              "translate-x-1 data-[state=checked]:translate-x-[1.15rem]",
-            )}
-          />
-        </Switch.Root>
-        <span className="flex flex-col gap-0.5">
-          <span className="text-body text-paper-200">喜怒哀楽のスタイルも作る</span>
-          <span className="text-label leading-relaxed text-paper-400">
-            あかるい・よろこび・やさしさ・あんど・じしん・からかい・かんがえ・かんたん・おどろき・
-            てれ・ふあん・あせり・くるしげ・おこり・あきれ・ねむそう・よい・ちからづよく・おねがい・
-            ろうどく・かなしみ・まじめ・ゆっくり・はやくちの 24 種類を追加します。
-            同じ声のまま口調を変えられます。なお、この喋り分けは標準チェックポイントでのみ効きます。
-          </span>
-        </span>
-      </label>
+      <EmotionStyleSwitch checked={withEmotion} onChange={setWithEmotion} />
 
       <div className="flex flex-col gap-2">
         <button

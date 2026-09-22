@@ -10,12 +10,17 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from ..schemas import TextSplitOut, TextSplitRequest, TextSplitSegmentOut
+from ..state import EngineState
 from ..synthesis.steps.split_text import split_text_into_segments
 
 router = APIRouter(prefix="/text", tags=["text"])
+
+
+def _state(request: Request) -> EngineState:
+    return request.app.state.engine
 
 # これを下回る行は、文の途中で切れている可能性が高い。警告の閾値として使う。
 # 完結した一文なら 17 文字でも実用に足りるため、明らかに短いものだけを拾う。
@@ -23,17 +28,19 @@ SHORT_LINE_CHARS = 15
 
 
 @router.post("/split", response_model=TextSplitOut)
-def split(payload: TextSplitRequest) -> TextSplitOut:
+def split(request: Request, payload: TextSplitRequest) -> TextSplitOut:
     """長い文章を、合成に向く長さの行へ割る。
 
-    区切りは句点を優先し、収まらない場合だけ読点で割る。エンジンが合成時に使う
-    規則と同じものを使うため、ここで割った結果はそのまま 1 行 1 合成になる。
+    区切りは句点を優先し、収まらない場合だけ読点で割る。鉤括弧で囲まれたセリフは
+    地の文と分けてひと塊にする。エンジンが合成時に使う規則と同じものを使うため、
+    ここで割った結果はそのまま 1 行 1 合成になる。
     """
 
     segments = split_text_into_segments(
         payload.text,
         target_chars=payload.target_chars,
         max_chars=payload.max_chars,
+        split_at_quotes=_state(request).settings.split_at_quotes,
     )
 
     lines = [

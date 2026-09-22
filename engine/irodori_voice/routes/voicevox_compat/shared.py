@@ -26,6 +26,21 @@ def engine_state(request: Request) -> EngineState:
     return request.app.state.engine
 
 
+def invalidate_audio_cache(request: Request) -> None:
+    """辞書を書き換えたら、古い読みで作った音声を捨てる。
+
+    合成キャッシュの鍵は辞書を当てる前の生の本文なので、辞書だけを変えても鍵が
+    変わらない。捨てないと、登録したのに前の読みがそのまま再生される。
+
+    キャッシュを持つのは合成サービスで、バックエンドの一覧を持つ registry ではない。
+    起動しきる前はまだ組み立てられていないため、居なければ何もしない。
+    """
+
+    service = engine_state(request).service
+    if service is not None:
+        service.clear_cache()
+
+
 def speaker_map_for(request: Request) -> SpeakerMap:
     state = engine_state(request)
     if state.registry is None:

@@ -10,21 +10,10 @@ from fastapi import APIRouter, Body, HTTPException, Query, Request
 
 from ...voicevox.aivis_dict import from_aivis_words, to_aivis_words
 from ...voicevox.user_dict import DEFAULT_PRIORITY
-from .shared import engine_state, user_dict_store
+from .shared import invalidate_audio_cache as _invalidate_audio_cache
+from .shared import user_dict_store
 
 router = APIRouter(tags=["voicevox-compat"])
-
-
-def _invalidate_audio_cache(request: Request) -> None:
-    """辞書を書き換えたら、古い読みで作った音声を捨てる。
-
-    キャッシュを持つのは合成サービスで、バックエンドの一覧を持つ registry ではない。
-    起動しきる前はまだ組み立てられていないため、居なければ何もしない。
-    """
-
-    service = engine_state(request).service
-    if service is not None:
-        service.clear_cache()
 
 
 # ---------------------------------------------------------------- ユーザー辞書
@@ -43,13 +32,16 @@ def add_user_dict_word(
     word_type: str | None = Query(None),
     priority: int | None = Query(None, ge=0, le=10),
 ) -> str:
-    res = user_dict_store.add(
-        surface=surface,
-        pronunciation=pronunciation,
-        accent_type=accent_type,
-        word_type=word_type or "PROPER_NOUN",  # type: ignore[arg-type]
-        priority=priority if priority is not None else DEFAULT_PRIORITY,
-    )
+    try:
+        res = user_dict_store.add(
+            surface=surface,
+            pronunciation=pronunciation,
+            accent_type=accent_type,
+            word_type=word_type or "PROPER_NOUN",  # type: ignore[arg-type]
+            priority=priority if priority is not None else DEFAULT_PRIORITY,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     _invalidate_audio_cache(request)
     return res
 
@@ -74,7 +66,7 @@ def rewrite_user_dict_word(
             priority=priority,
         )
         _invalidate_audio_cache(request)
-    except KeyError as exc:
+    except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
@@ -89,10 +81,12 @@ def delete_user_dict_word(request: Request, word_uuid: str) -> None:
 
 @router.post("/import_user_dict", status_code=204)
 def import_user_dict(
+    request: Request,
     payload: dict[str, dict] = Body(...),
     override: bool = Query(False),
 ) -> None:
     user_dict_store.import_words(payload, override=override)
+    _invalidate_audio_cache(request)
 
 
 @router.get("/user_dict/aivis")
@@ -108,6 +102,7 @@ def export_user_dict_aivis() -> dict[str, dict]:
 
 @router.post("/user_dict/aivis")
 def import_user_dict_aivis(
+    request: Request,
     payload: Any = Body(...),
     override: bool = Query(True),
 ) -> dict:
@@ -127,6 +122,7 @@ def import_user_dict_aivis(
             {word_uuid: word.to_json() for word_uuid, word in result.words.items()},
             override=override,
         )
+        _invalidate_audio_cache(request)
     return {
         "imported": len(result.words),
         "skipped": result.skipped,

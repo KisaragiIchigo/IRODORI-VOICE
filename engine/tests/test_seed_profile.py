@@ -59,7 +59,7 @@ class SeedProfileTests(unittest.TestCase):
     def test_profile_reaches_request_without_replacing_reference_or_seed(self):
         style = apply_seed_expression_profile(VoiceStyleDef(style_id="normal", name="通常"))
         request = self.request(style)
-        self.assertEqual((request.num_steps, request.cfg_scale_caption, request.cfg_scale_speaker), (40, 5.0, 2.0))
+        self.assertEqual((request.num_steps, request.cfg_scale_caption, request.cfg_scale_speaker), (40, 5.0, 3.0))
         self.assertEqual(request.cfg_scale_text, 3.0)
         self.assertEqual(request.ref_latents, ["参照.pt"])
         self.assertEqual(request.seed, 114514)
@@ -144,7 +144,7 @@ class SeedProfileTests(unittest.TestCase):
         duplicate = store.duplicate(voice.preset_id)
         for candidate in (voice, reloaded, duplicate):
             request = self.request(candidate.styles[0])
-            self.assertEqual((request.num_steps, request.cfg_scale_caption, request.cfg_scale_speaker), (40, 5.0, 2.0))
+            self.assertEqual((request.num_steps, request.cfg_scale_caption, request.cfg_scale_speaker), (40, 5.0, 3.0))
             self.assertEqual(candidate.reference_files, ["元の参照.wav"])
             self.assertEqual(candidate.voice_seed, 0)
 
@@ -158,7 +158,7 @@ class SeedProfileTests(unittest.TestCase):
         self.assertEqual(result.voice_seed, 42)
         self.assertEqual(result.styles[0].num_steps, 40)
         self.assertEqual(result.styles[0].cfg_scale_caption, 5.0)
-        self.assertEqual(result.styles[0].cfg_scale_speaker, 2.0)
+        self.assertEqual(result.styles[0].cfg_scale_speaker, 3.0)
 
     def test_seed_sources_copy_style_without_copying_voice_identity(self):
         from irodori_voice.voices.seed_source import create_seed_preset
@@ -248,6 +248,69 @@ class SeedProfileTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as error:
             preview_seed(request, SeedPreviewRequest(seed=0, source_voice_id="irodori:missing"))
         self.assertEqual(error.exception.status_code, 400)
+
+    def test_bake_saves_four_references_and_removes_temporary_voices(self):
+        from types import SimpleNamespace
+        import numpy as np
+        from irodori_voice.voices.reference import SEED_FOLLOWUP_TEXTS, SEED_REFERENCE_TEXT
+        store = VoicePresetStore([])
+        read: list[str] = []
+
+        def synthesize(params):
+            preset = store.get(params.voice_id.removeprefix("irodori:"))
+            # 1 本目は参照を持たない話者で焼き、2 本目からはその 1 本目を参照に据える。
+            if read:
+                self.assertEqual(preset.mode, "reference")
+                self.assertEqual(len(preset.reference_files), 1)
+            else:
+                self.assertEqual(preset.mode, "caption")
+            read.append(params.text)
+            return SimpleNamespace(samples=np.zeros(24000, dtype=np.float32), sample_rate=48000)
+
+        backend = Mock()
+        backend.synthesize.side_effect = synthesize
+        before = [preset.preset_id for preset in store.list()]
+        names = seed_bake.bake_seed_reference(irodori=backend, store=store, seed=7, caption=None)
+
+        self.assertEqual(len(names), 4)
+        self.assertEqual(len(set(names)), 4)
+        for name in names:
+            self.assertTrue((paths.voice_assets_dir() / name).exists())
+        # 助走の無い参照は生成音声の冒頭を破裂させるため、先頭へ無音を足して保存する。
+        import wave
+        from irodori_voice.voices.reference import SEED_REFERENCE_LEAD_SECONDS
+        for name in names:
+            with wave.open(str(paths.voice_assets_dir() / name), "rb") as saved:
+                lead = int(saved.getframerate() * SEED_REFERENCE_LEAD_SECONDS)
+                self.assertEqual(saved.getnframes(), 24000 + lead)
+                head = saved.readframes(lead)
+                self.assertEqual(set(head), {0})
+        self.assertEqual(read[0], SEED_REFERENCE_TEXT)
+        self.assertEqual(read[1:], list(SEED_FOLLOWUP_TEXTS))
+        # 焼き終わったあとに一時の話者を残さない。
+        self.assertEqual([preset.preset_id for preset in store.list()], before)
+
+    def test_bake_does_not_leave_orphan_reference_when_followup_fails(self):
+        from types import SimpleNamespace
+        import numpy as np
+        from irodori_voice.backends.base import BackendError
+        store = VoicePresetStore([])
+        done: list[str] = []
+
+        def synthesize(params):
+            if done:
+                raise BackendError("2 本目の失敗を検証する")
+            done.append(params.text)
+            return SimpleNamespace(samples=np.zeros(24000, dtype=np.float32), sample_rate=48000)
+
+        backend = Mock()
+        backend.synthesize.side_effect = synthesize
+        existing = {path.name for path in paths.voice_assets_dir().glob("ref-*.wav")}
+        with self.assertRaises(BackendError):
+            seed_bake.bake_seed_reference(irodori=backend, store=store, seed=7, caption=None)
+        # 1 本目を書き出したあとに失敗しても、ファイルを置き去りにしない。
+        self.assertEqual({path.name for path in paths.voice_assets_dir().glob("ref-*.wav")}, existing)
+        self.assertEqual(store.list(), [])
 
     def test_api_accepts_and_validates_style_steps(self):
         from pydantic import ValidationError

@@ -56,6 +56,8 @@ class SplitPolicy:
     max_chars: int = DEFAULT_MAX_CHARS
     sentence_silence: float = 0.25
     clause_silence: float = 0.1
+    # 鉤括弧の境目で区間を分け、中では割らない。
+    at_quotes: bool = True
 
 
 @dataclass
@@ -86,9 +88,12 @@ def synthesize_pipeline(
             max_chars=split.max_chars,
             sentence_silence=split.sentence_silence,
             clause_silence=split.clause_silence,
+            split_at_quotes=split.at_quotes,
         )
         if split.enabled
-        else split_text_into_segments(params.text, max_chars=10**9)
+        else split_text_into_segments(
+            params.text, max_chars=10**9, split_at_quotes=False
+        )
     )
     if not segments:
         raise ValueError("合成するテキストがありません。")
@@ -155,6 +160,7 @@ def describe_segments(
         text,
         target_chars=split.target_chars,
         max_chars=split.max_chars,
+        split_at_quotes=split.at_quotes,
     )
     return [segment.text for segment in segments]
 
