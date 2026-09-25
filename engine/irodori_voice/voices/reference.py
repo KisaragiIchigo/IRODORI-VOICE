@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+import shutil
 import uuid
+from pathlib import Path
 
 from ..paths import voice_assets_dir
 
@@ -102,6 +104,23 @@ def save_reference_wavs(wavs: list[bytes]) -> list[str]:
     for wav in wavs:
         name = f"ref-{uuid.uuid4().hex[:12]}.wav"
         (root / name).write_bytes(wav)
+        names.append(name)
+    return names
+
+
+def copy_reference_files(paths: list[str]) -> list[str]:
+    """参照音声を新しい名前でアセット領域へ写し、保存したファイル名を返す。
+
+    複製した話者に元と同じファイル名を持たせると、どちらかを削除した時点でもう片方の
+    参照音声も消える。同梱話者のファイルはパッケージ側にあり、利用者の領域からは見えない。
+    """
+
+    root = voice_assets_dir()
+    names: list[str] = []
+    for path in paths:
+        source = Path(path)
+        name = f"ref-{uuid.uuid4().hex[:12]}{source.suffix}"
+        shutil.copyfile(source, root / name)
         names.append(name)
     return names
 

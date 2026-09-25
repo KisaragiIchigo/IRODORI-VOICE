@@ -111,6 +111,15 @@ def voice_assets_dir() -> Path:
     return path
 
 
+def builtin_voice_assets_dir() -> Path:
+    """同梱話者の参照音声。パッケージと一緒に配り、書き換えない。
+
+    凍結時もパッケージ配下へ展開される（irodori-voice-engine.spec が同じ相対位置へ置く）。
+    """
+
+    return package_root() / "voices" / "builtin_assets"
+
+
 def voice_icons_dir() -> Path:
     """話者へ付けたアイコンの保管場所。
 

@@ -93,7 +93,7 @@ def list_references(request: Request, voice_id: str) -> list[dict[str, str | int
 
     entries: list[dict[str, str | int]] = []
     for index, name in enumerate(preset.reference_files):
-        path = voice_assets_dir() / name
+        path = preset.assets_root() / name
         entries.append(
             {
                 "index": index,

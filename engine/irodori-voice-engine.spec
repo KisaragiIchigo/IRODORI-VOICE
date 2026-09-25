@@ -53,6 +53,12 @@ if (_admin_dist / "index.html").is_file():
         if _item.is_file():
             datas.append((str(_item), str(Path("admin") / _item.parent.relative_to(_admin_dist))))
 
+# 同梱話者の参照音声。paths.builtin_voice_assets_dir() はパッケージからの相対位置で探すため、
+# _internal/ の下へ同じ相対パスのまま置く。欠けると同梱話者が「参照音声が設定されていません」で鳴らない。
+_builtin_voices = ENGINE_ROOT / "irodori_voice" / "voices" / "builtin_assets"
+for _item in _builtin_voices.rglob("*.flac"):
+    datas.append((str(_item), str(_item.parent.relative_to(ENGINE_ROOT))))
+
 # パッケージのメタデータ（dist-info）は既定ではコピーされない。
 # transformers は importlib.metadata.version() で版を読む箇所があり、
 # torchcodec については取得の失敗を吸収していないため、

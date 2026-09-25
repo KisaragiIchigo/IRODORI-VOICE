@@ -109,15 +109,38 @@ class SeedProfileTests(unittest.TestCase):
             fixed = self.request(style, text="嗚咽しながら話している。", pronunciation_mode="kanji")
             self.assertEqual(fixed.text, "むせびなきしながら話している。")
 
-    def test_builtin_voices_use_quality_defaults_without_erasing_style(self):
+    def test_builtin_voices_are_baked_like_seed_voices(self):
+        from irodori_voice.voices.expression_styles import EXPRESSION_STYLES
         from irodori_voice.voices.presets import BUILTIN_PRESETS
         for preset in BUILTIN_PRESETS:
-            style = preset.styles[0]
-            request = self.request(style, reference=False, voice_seed=None, text="今日は晴れです。")
-            self.assertEqual(request.text, "今日は晴れです。")
-            self.assertEqual(request.caption, style.caption)
-            self.assertEqual(request.cfg_scale_text, 3.0)
-            self.assertIsNone(request.num_steps)
+            with self.subTest(preset=preset.preset_id):
+                self.assertEqual(preset.mode, "reference")
+                self.assertIsNotNone(preset.voice_seed)
+                self.assertGreaterEqual(len(preset.reference_files), 1)
+                for path in preset.reference_paths():
+                    self.assertTrue(Path(path).is_file(), path)
+                self.assertEqual(len(preset.styles), len(EXPRESSION_STYLES))
+                style = preset.styles[0]
+                request = self.request(style, voice_seed=preset.voice_seed, text="今日は晴れです。")
+                self.assertEqual(request.text, "今日は晴れです。")
+                self.assertEqual(request.caption, style.caption)
+                self.assertEqual(request.seed, preset.voice_seed)
+                self.assertEqual((request.num_steps, request.cfg_scale_caption, request.cfg_scale_speaker), (40, 5.0, 3.0))
+                # 朗読の指示と本文 CFG 2 は、喜怒哀楽のスタイルにも同じ本文 CFG で行き渡る。
+                self.assertTrue(style.caption.endswith("物語を感情豊かに朗読している。"))
+                self.assertEqual({s.cfg_scale_text for s in preset.styles}, {2.0})
+                self.assertEqual(request.cfg_scale_text, 2.0)
+
+    def test_duplicating_a_builtin_voice_copies_its_references(self):
+        from irodori_voice.voices.presets import BUILTIN_PRESETS
+        store = VoicePresetStore(BUILTIN_PRESETS)
+        source = BUILTIN_PRESETS[0]
+        duplicate = store.duplicate(source.preset_id)
+        self.assertFalse(duplicate.builtin)
+        self.assertEqual(len(duplicate.reference_files), len(source.reference_files))
+        for original, copied in zip(source.reference_paths(), duplicate.reference_paths()):
+            self.assertTrue(copied.startswith(str(paths.voice_assets_dir())))
+            self.assertEqual(Path(copied).read_bytes(), Path(original).read_bytes())
 
     def test_saved_eight_step_settings_do_not_lower_voice_design_quality(self):
         settings = EngineSettings.from_json({"num_steps": 8})
@@ -138,6 +161,7 @@ class SeedProfileTests(unittest.TestCase):
 
     def test_new_seed_profile_survives_save_reload_and_duplicate(self):
         store = VoicePresetStore([])
+        (paths.voice_assets_dir() / "元の参照.wav").write_bytes(b"RIFF")
         with patch.object(seed_bake, "bake_seed_reference", return_value=["元の参照.wav"]):
             voice = seed_bake.create_voice_from_seed(irodori=Mock(), store=store, name="試験", seed=0)
         reloaded = VoicePresetStore([]).get(voice.preset_id)
@@ -145,8 +169,11 @@ class SeedProfileTests(unittest.TestCase):
         for candidate in (voice, reloaded, duplicate):
             request = self.request(candidate.styles[0])
             self.assertEqual((request.num_steps, request.cfg_scale_caption, request.cfg_scale_speaker), (40, 5.0, 3.0))
-            self.assertEqual(candidate.reference_files, ["元の参照.wav"])
             self.assertEqual(candidate.voice_seed, 0)
+        self.assertEqual(reloaded.reference_files, ["元の参照.wav"])
+        # 複製は自分の参照音声を持つ。元を削除しても、複製の参照は消えない。
+        self.assertNotEqual(duplicate.reference_files, ["元の参照.wav"])
+        self.assertEqual(Path(duplicate.reference_paths()[0]).read_bytes(), b"RIFF")
 
     def test_existing_unfixed_voice_gets_profile_when_baked(self):
         store = VoicePresetStore([])

@@ -11,7 +11,7 @@ import threading
 
 from .backends.sbv2.backend import Sbv2Backend
 from .backends.base import BackendError
-from .backends.irodori.backend import IrodoriBackend
+from .backends.irodori.backend import VOICE_ID_PREFIX, IrodoriBackend, preset_id_from
 from .backends.registry import BackendRegistry, SynthesisService
 from .settings import DevicePlacement, EngineSettings, load_settings, resolve_placement
 from .voices.presets import BUILTIN_PRESETS
@@ -70,7 +70,7 @@ class EngineState:
         self.service.start_prefetch_worker()
 
         # 話者一覧の試聴音声は、要求された時点で作り置きが無ければ裏で生成する。
-        sample_store.bind(self._generate_sample)
+        sample_store.bind(self._generate_sample, self._sample_revision)
 
     def start_background_load(self) -> None:
         """モデル読み込みとウォームアップを別スレッドで進める。"""
@@ -158,6 +158,20 @@ class EngineState:
             low_band=LowBandPolicy(enabled=self.settings.restore_low_band),
         )
         return result.audio.wav
+
+    def _sample_revision(self, voice_id: str, style_id: str | None) -> str:
+        """試聴音声の作り置きを見分ける値。Irodori の話者だけが持ち、定義が変われば変わる。
+
+        取り込んだモデルの話者は ID が変わらない限り音も変わらないため、空文字を返して
+        従来の作り置きをそのまま使わせる。
+        """
+
+        if self.store is None or not voice_id.startswith(VOICE_ID_PREFIX):
+            return ""
+        try:
+            return self.store.get(preset_id_from(voice_id)).revision(style_id)
+        except KeyError:
+            return ""
 
     def clear_error(self) -> None:
         self._error = None

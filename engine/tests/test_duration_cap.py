@@ -57,16 +57,19 @@ class MoraCountTests(unittest.TestCase):
 
 
 class MaxSecondsTests(unittest.TestCase):
-    def cap(self, morae, duration_scale=1.0, annotated=False):
+    def cap(self, morae, duration_scale=1.0, annotated=False, trusted=True, text="_"):
         with patch.object(duration_cap, "count_morae", return_value=morae):
             with patch.object(
                 duration_cap, "count_annotation_emojis", return_value=1 if annotated else 0
             ):
-                return duration_cap.resolve_max_seconds("_", duration_scale=duration_scale)
+                return duration_cap.resolve_max_seconds(
+                    text, duration_scale=duration_scale, trust_prediction=trusted
+                )
 
-    def test_borrowed_and_builtin_voices_are_never_cut(self):
-        # 実測の最大値。借りた声 3 人・同梱話者・話速 0.5 のいずれも上限を下回る。
-        for morae, seconds in ((2, 1.32), (6, 1.48), (7, 1.72), (11, 2.40), (32, 5.64), (55, 8.92)):
+    def test_borrowed_voices_are_never_cut(self):
+        # 実測の最大値。借りた声 3 人・話速 0.5 のいずれも上限を下回る。2 モーラは「はい？」の 1.13。
+        # 以前の同梱話者（ナレーション）の 1.32 は、その話者を配らなくなったため外した。
+        for morae, seconds in ((2, 1.13), (6, 1.48), (7, 1.72), (11, 2.40), (32, 5.64), (55, 8.92)):
             with self.subTest(morae=morae):
                 self.assertGreater(self.cap(morae), seconds)
         self.assertGreater(self.cap(7, duration_scale=2.0), 3.16)
@@ -97,6 +100,44 @@ class MaxSecondsTests(unittest.TestCase):
     def test_floor_protects_very_short_text(self):
         self.assertEqual(self.cap(1), duration_cap.MIN_CAP_SECONDS)
         self.assertEqual(self.cap(2), duration_cap.MIN_CAP_SECONDS)
+        self.assertEqual(self.cap(1, annotated=True), duration_cap.ANNOTATED_MIN_CAP_SECONDS)
+
+    def test_short_lines_of_borrowed_voices_are_not_cut(self):
+        # 借りた声 3 人の最長: 「そうなの？」（4 モーラ）1.45、「……ふぅ。」（1 モーラ）1.31、
+        # 「😮‍💨……ふぅ。」1.37。疑問や三点リーダで伸びた分も通す。
+        self.assertGreater(self.cap(4), 1.45)
+        self.assertGreater(self.cap(1, text="……ふぅ。"), 1.31)
+        self.assertGreater(self.cap(1, annotated=True), 1.37)
+
+    def test_pause_marks_count_once_per_run(self):
+        with patch.object(duration_cap, "count_morae", return_value=20):
+            with patch.object(duration_cap, "count_annotation_emojis", return_value=0):
+                plain = duration_cap.resolve_max_seconds("_", duration_scale=1.0)
+                one = duration_cap.resolve_max_seconds("……ふぅ", duration_scale=1.0)
+                two = duration_cap.resolve_max_seconds("あ…い...う", duration_scale=1.0)
+        self.assertAlmostEqual(one - plain, duration_cap.PAUSE_SECONDS * duration_cap.MARGIN)
+        self.assertAlmostEqual(two - plain, 2 * duration_cap.PAUSE_SECONDS * duration_cap.MARGIN)
+
+    def test_untrusted_voices_are_capped_at_the_natural_length(self):
+        # 利用者の聴取（シードの声 3 人）。「はい。」は 0.90 秒で正しく 1.50 秒で埋め草、「うん。」は
+        # 1.20 秒で「えんちにー」「おーい」、「……ふぅ。」は 1.44 秒で「いーーー」、
+        # 「😮‍💨……ふぅ。」は 1.8 秒で「ふううう」。「お疲れさまです。」は 1.60 秒で正しく読めた。
+        self.assertLess(self.cap(2, trusted=False), 1.20)
+        self.assertLess(self.cap(1, text="……ふぅ。", trusted=False), 1.44)
+        self.assertLess(self.cap(1, text="……ふぅ。", annotated=True, trusted=False), 1.80)
+        self.assertGreaterEqual(self.cap(8, trusted=False), 1.60)
+        # 見積もりそのものが上限。注釈がある行だけ、ため息や間の分を残す。
+        estimate = duration_cap.BASE_SECONDS + duration_cap.SECONDS_PER_MORA * 7
+        self.assertAlmostEqual(self.cap(7, trusted=False), estimate)
+        self.assertGreater(self.cap(7, annotated=True, trusted=False), self.cap(7, trusted=False))
+
+    def test_untrusted_voices_keep_their_long_lines(self):
+        # シードの声でも長い本文の予測は借りた声と揃う（32 モーラ 5.04〜5.44、55 モーラ 8.24〜8.80）。
+        self.assertGreaterEqual(self.cap(32, trusted=False), 5.44)
+        self.assertGreater(self.cap(55, trusted=False), 8.80)
+
+    def test_untrusted_cap_follows_the_speed(self):
+        self.assertAlmostEqual(self.cap(11, duration_scale=2.0, trusted=False), self.cap(11, trusted=False) * 2.0)
 
     def test_scale_moves_the_cap_with_the_prediction(self):
         base = self.cap(11)

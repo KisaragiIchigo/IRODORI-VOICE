@@ -11,6 +11,7 @@ VOICEVOX の「話者 > スタイル」構造を Irodori-TTS の条件付けに�
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import uuid
@@ -19,7 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from ..paths import voice_assets_dir, voices_dir
+from ..paths import builtin_voice_assets_dir, voice_assets_dir, voices_dir
+from .reference import copy_reference_files
 
 VoiceMode = Literal["reference", "caption", "embed"]
 
@@ -94,19 +96,37 @@ class VoicePreset:
                 return candidate
         raise KeyError(f"スタイル {style_id} は話者 {self.preset_id} に存在しません。")
 
+    def assets_root(self) -> Path:
+        # 同梱話者のファイルはパッケージと一緒に配る。利用者の領域には置かない。
+        return builtin_voice_assets_dir() if self.builtin else voice_assets_dir()
+
     def reference_paths(self) -> list[str]:
-        root = voice_assets_dir()
+        root = self.assets_root()
         return [str(root / name) for name in self.reference_files]
+
+    def revision(self, style_id: str | None) -> str:
+        """そのスタイルの鳴り方を決める定義の指紋。作り置きの見分けに使う。
+
+        同梱話者は ID もファイル名も変えずに参照音声や生成条件を差し替えるため、ID だけを鍵にした
+        作り置きは古い音のまま鳴り続ける。参照音声は中身まで読むと一覧を開くたびに遅くなるので、
+        大きさと更新時刻で代える。
+        """
+
+        parts = [self.mode, str(self.voice_seed), json.dumps(self.style(style_id).to_json(), sort_keys=True)]
+        for path in map(Path, self.reference_paths()):
+            stat = path.stat() if path.is_file() else None
+            parts.append(f"{path.name}:{stat.st_size}:{stat.st_mtime_ns}" if stat else f"{path.name}:missing")
+        return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:12]
 
     def speaker_embed_path(self) -> str | None:
         if self.speaker_embed_file is None:
             return None
-        return str(voice_assets_dir() / self.speaker_embed_file)
+        return str(self.assets_root() / self.speaker_embed_file)
 
     def portrait_path(self) -> str | None:
         if self.portrait_file is None:
             return None
-        return str(voice_assets_dir() / self.portrait_file)
+        return str(self.assets_root() / self.portrait_file)
 
 
 class VoicePresetStore:
@@ -204,7 +224,7 @@ class VoicePresetStore:
             color_key=source.color_key,
             mode=source.mode,
             styles=[VoiceStyleDef.from_json(s.to_json()) for s in source.styles],
-            reference_files=list(source.reference_files),
+            reference_files=copy_reference_files(source.reference_paths()),
             speaker_embed_file=source.speaker_embed_file,
             portrait_file=source.portrait_file,
             voice_seed=source.voice_seed,

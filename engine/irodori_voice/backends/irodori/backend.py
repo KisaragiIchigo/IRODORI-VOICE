@@ -297,6 +297,8 @@ class IrodoriBackend:
             and preset.voice_seed is None
         ):
             text = apply_pronunciation(text)
+        # 末尾に足す「..」は表現の合図で、本文の間ではない。尺の上限はこれを足す前の本文で決める。
+        spoken_text = text
         text = append_expression_pause(text)
         caption = build_expression_caption(
             text, style_caption=style.caption, explicit_caption=params.caption,
@@ -323,8 +325,13 @@ class IrodoriBackend:
 
         # 読み上げる長さは先に予測され、そのフレーム数が最後まで埋められる。短い本文へ
         # 長すぎる尺が割り当てられると、モデルが余りを埋めて本文に無い音を出す。予測は
-        # そのまま使い、本文の長さから決めた上限で走りすぎだけを止める。
-        max_seconds = resolve_max_seconds(text, duration_scale=duration_scale)
+        # そのまま使い、本文の長さから決めた上限で走りすぎだけを止める。シードの声と参照を
+        # 持たない声は短い本文の予測が大きく伸びるため、上限を自然な長さまで絞る。
+        max_seconds = resolve_max_seconds(
+            spoken_text,
+            duration_scale=duration_scale,
+            trust_prediction=preset.mode != "caption" and preset.voice_seed is None,
+        )
         if max_seconds is not None:
             request.max_seconds = max_seconds
 
@@ -367,7 +374,8 @@ class IrodoriBackend:
 
         if self._warmed_up:
             return
-        preset = next((p for p in self._store.list() if p.mode == "caption"), None)
+        # 一覧は同梱話者が先頭に来る。利用者が話者を消しても必ず残る声で温める。
+        preset = next(iter(self._store.list()), None)
         if preset is None:
             self._warmed_up = True
             return

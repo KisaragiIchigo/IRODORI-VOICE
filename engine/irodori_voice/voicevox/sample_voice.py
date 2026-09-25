@@ -45,10 +45,16 @@ def _sample_dir() -> Path:
     return path
 
 
-def _sample_path(voice_id: str, style_id: str | None, index: int) -> Path:
+def _sample_prefix(voice_id: str, style_id: str | None) -> str:
     # モノラル出力の旧キャッシュは再利用しない。
-    key = f"v3_{voice_id}_{style_id or 'default'}_{index}".replace(":", "-").replace("/", "-")
-    return _sample_dir() / f"{key}.wav"
+    return f"v3_{voice_id}_{style_id or 'default'}_".replace(":", "-").replace("/", "-")
+
+
+def _sample_path(voice_id: str, style_id: str | None, index: int, revision: str = "") -> Path:
+    # 定義の指紋を持つ話者は、それを鍵へ含める。持たない話者は従来の名前のまま使い、
+    # 既にある作り置きを作り直させない。
+    middle = f"{revision}_" if revision else ""
+    return _sample_dir() / f"{_sample_prefix(voice_id, style_id)}{middle}{index}.wav"
 
 
 def _encode(samples: np.ndarray, rate: int) -> str:
@@ -66,15 +72,21 @@ class SampleVoiceStore:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._pending: set[tuple[str, str | None]] = set()
+        self._pending: set[tuple[str, str | None, str]] = set()
         self._worker: threading.Thread | None = None
-        self._queue: list[tuple[str, str | None]] = []
+        self._queue: list[tuple[str, str | None, str]] = []
         self._generate: Callable[[str, str | None, str], bytes] | None = None
+        self._revision: Callable[[str, str | None], str] | None = None
 
-    def bind(self, generate: Callable[[str, str | None, str], bytes]) -> None:
-        """合成関数を渡す。エンジンの起動が済んでから呼ぶ。"""
+    def bind(
+        self,
+        generate: Callable[[str, str | None, str], bytes],
+        revision: Callable[[str, str | None], str] | None = None,
+    ) -> None:
+        """合成関数と、話者の定義の指紋を返す関数を渡す。エンジンの起動が済んでから呼ぶ。"""
 
         self._generate = generate
+        self._revision = revision
 
     def samples_for(self, voice_id: str, style_id: str | None) -> list[str]:
         """base64 のサンプルを返す。無ければ無音を返し、生成を予約する。
@@ -84,9 +96,10 @@ class SampleVoiceStore:
         3 枠へ同じ音声を並べると、押しても同じ音が鳴るボタンが 3 つ並ぶことになる。
         """
 
+        revision = self._revision(voice_id, style_id) if self._revision is not None else ""
         encoded: list[str] = []
         for index in range(_MAX_SAMPLES):
-            path = _sample_path(voice_id, style_id, index)
+            path = _sample_path(voice_id, style_id, index, revision)
             if not path.is_file():
                 break
             encoded.append(base64.b64encode(path.read_bytes()).decode("ascii"))
@@ -96,13 +109,13 @@ class SampleVoiceStore:
 
         # まだ作られていない。空配列を返すとエディタが undefined を audio.src へ
         # 代入して落ちるため、無音を 1 本返しておく。生成は裏で走らせる。
-        self._enqueue(voice_id, style_id)
+        self._enqueue(voice_id, style_id, revision)
         return [silent_sample_base64()]
 
-    def _enqueue(self, voice_id: str, style_id: str | None) -> None:
+    def _enqueue(self, voice_id: str, style_id: str | None, revision: str) -> None:
         if self._generate is None:
             return
-        key = (voice_id, style_id)
+        key = (voice_id, style_id, revision)
         with self._lock:
             if key in self._pending:
                 return
@@ -122,27 +135,32 @@ class SampleVoiceStore:
                 if not self._queue:
                     self._worker = None
                     return
-                voice_id, style_id = self._queue.pop(0)
+                voice_id, style_id, revision = self._queue.pop(0)
 
             try:
-                self._generate_all(voice_id, style_id)
+                self._generate_all(voice_id, style_id, revision)
             except Exception:
                 # 生成に失敗しても一覧の表示は続けられる。次回また試す。
                 pass
             finally:
                 with self._lock:
-                    self._pending.discard((voice_id, style_id))
+                    self._pending.discard((voice_id, style_id, revision))
 
-    def _generate_all(self, voice_id: str, style_id: str | None) -> None:
+    def _generate_all(self, voice_id: str, style_id: str | None, revision: str) -> None:
         if self._generate is None:
             return
-        path = _sample_path(voice_id, style_id, 0)
+        path = _sample_path(voice_id, style_id, 0, revision)
         if path.is_file():
             return
         wav = self._generate(voice_id, style_id, SAMPLE_TEXT)
         tmp = path.with_suffix(".wav.tmp")
         tmp.write_bytes(wav)
         tmp.replace(path)
+        if revision:
+            # 定義が変わる前の作り置きは二度と使われないため、同じ話者・スタイルの分を片付ける。
+            for stale in _sample_dir().glob(f"{_sample_prefix(voice_id, style_id)}*.wav"):
+                if stale != path:
+                    stale.unlink(missing_ok=True)
 
     def clear(self) -> None:
         for path in _sample_dir().glob("*.wav"):
